@@ -27,6 +27,10 @@ func Setup(mode string) *gin.Engine {
 	{
 		// 创建短链接
 		v1.POST("/shorten", controller.ShortenHandler)
+		// 查询短链接信息
+		v1.GET("/:shortCode", controller.ShortenInfoHandler)
+		// 批量创建短链接
+		v1.POST("/batch/shorten", controller.BatchShortenHandler)
 	}
 
 	// 重定向路由（根路径级别的短码访问）

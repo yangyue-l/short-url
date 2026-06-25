@@ -13,13 +13,15 @@ const (
 	CodeInvalidParam
 	CodeNotFound
 	CodeServerBusy
+	CodeRequestAlreadyProcessed
 )
 
 var codeMsg = map[ResponseCode]string{
-	CodeSuccess:      "success",
-	CodeInvalidParam: "invalid parameters",
-	CodeNotFound:     "not found",
-	CodeServerBusy:   "server busy",
+	CodeSuccess:                 "success",
+	CodeInvalidParam:            "invalid parameters",
+	CodeNotFound:                "not found",
+	CodeServerBusy:              "server busy",
+	CodeRequestAlreadyProcessed: "request already processed",
 }
 
 type Response struct {
