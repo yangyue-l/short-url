@@ -1,0 +1,26 @@
+server:
+  port: 8080
+  mode: debug
+
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: 123456
+  db: short_url
+  max_open_conns: 100
+  max_idle_conns: 20
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: 123456
+  db: 0
+  pool_size: 10
+
+logger:
+  level: info
+  filename: ./logs/app.log
+  max_size: 128
+  max_backups: 30
+  max_age: 7
