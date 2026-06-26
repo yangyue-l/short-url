@@ -15,7 +15,7 @@ func GetUserByUsername(username string) (*models.User, error) {
 	return &user, nil
 }
 
-func GetUserByID(id uint64) (*models.User, error) {
+func GetUserByID(id int64) (*models.User, error) {
 	var user models.User
 	err := db.Where("id = ?", id).First(&user).Error
 	if err != nil {
@@ -24,6 +24,6 @@ func GetUserByID(id uint64) (*models.User, error) {
 	return &user, nil
 }
 
-func DeleteUser(id uint64) error {
+func DeleteUser(id int64) error {
 	return db.Delete(&models.User{}, id).Error
 }

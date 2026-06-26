@@ -31,7 +31,7 @@ func IncrementClickCnt(shortCode string) error {
 }
 
 // GetURLsByUserID 分页获取用户的短链接列表
-func GetURLsByUserID(userID uint64, page, pageSize int) ([]models.URL, int64, error) {
+func GetURLsByUserID(userID int64, page, pageSize int) ([]models.URL, int64, error) {
 	var urls []models.URL
 	var total int64
 
@@ -50,7 +50,7 @@ func GetURLsByUserID(userID uint64, page, pageSize int) ([]models.URL, int64, er
 }
 
 // GetURLByShortCodeAndUser 按短码和用户ID查询（所有权校验用）
-func GetURLByShortCodeAndUser(shortCode string, userID uint64) (*models.URL, error) {
+func GetURLByShortCodeAndUser(shortCode string, userID int64) (*models.URL, error) {
 	var url models.URL
 	err := db.Where("short_code = ? AND user_id = ?", shortCode, userID).First(&url).Error
 	if err != nil {
@@ -60,11 +60,11 @@ func GetURLByShortCodeAndUser(shortCode string, userID uint64) (*models.URL, err
 }
 
 // DeleteURLByShortCodeAndUser 按短码和用户ID删除（所有权校验用）
-func DeleteURLByShortCodeAndUser(shortCode string, userID uint64) error {
+func DeleteURLByShortCodeAndUser(shortCode string, userID int64) error {
 	return db.Where("short_code = ? AND user_id = ?", shortCode, userID).Delete(&models.URL{}).Error
 }
 
 // DeleteURLsByUserID 删除用户的所有短链接（注销账号用）
-func DeleteURLsByUserID(userID uint64) error {
+func DeleteURLsByUserID(userID int64) error {
 	return db.Where("user_id = ?", userID).Delete(&models.URL{}).Error
 }

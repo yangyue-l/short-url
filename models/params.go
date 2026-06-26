@@ -79,7 +79,7 @@ type ParamRegisterRequest struct {
 
 // ParamRegisterResponse 用户注册响应
 type ParamRegisterResponse struct {
-	UserID   uint64 `json:"user_id"`
+	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
 }
 
@@ -89,21 +89,7 @@ type ParamLoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
-// ParamUserBrief 用户简要信息
-type ParamUserBrief struct {
-	ID       uint64 `json:"id"`
-	Username string `json:"username"`
-}
-
-// ParamLoginResponse 用户登录响应
-type ParamLoginResponse struct {
-	Token    string         `json:"token"`
-	ExpireAt string         `json:"expire_at"`
-	User     ParamUserBrief `json:"user"`
-}
-
 // ParamRefreshResponse 刷新 Token 响应
 type ParamRefreshResponse struct {
-	Token    string `json:"token"`
-	ExpireAt string `json:"expire_at"`
+	Token string `json:"token"`
 }

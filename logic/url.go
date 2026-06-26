@@ -50,7 +50,7 @@ func cacheURL(shortCode, longURL string, ttl time.Duration) {
 }
 
 // CreateShortURL 创建短链接
-func CreateShortURL(userID uint64, longURL, customCode string, expireIn int64) (*models.ParamShortenResponse, error) {
+func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*models.ParamShortenResponse, error) {
 	url := &models.URL{
 		LongURL:   longURL,
 		ShortCode: customCode,
@@ -161,7 +161,7 @@ func GetShortenInfo(shortCode string) (*models.ParamURLInfoResponse, error) {
 }
 
 // CreateBatchShortURL 批量创建短链接
-func CreateBatchShortURL(userID uint64, p *models.ParamBatchURLRequest) (*models.ParamBatchURLResponse, error) {
+func CreateBatchShortURL(userID int64, p *models.ParamBatchURLRequest) (*models.ParamBatchURLResponse, error) {
 	// 幂等性校验：使用 Redis SETNX 原子操作，避免 TOCTOU 竞态
 	if p.RequestID != "" {
 		ok, err := redis.SetRequestIDNX(p.RequestID)
@@ -232,7 +232,7 @@ func CreateBatchShortURL(userID uint64, p *models.ParamBatchURLRequest) (*models
 }
 
 // UpdateShortCode 更新短链接（需要 ownership 校验）
-func UpdateShortCode(userID uint64, shortCode, longURL string, expireIn int64) (*models.ParamUpdateResponse, error) {
+func UpdateShortCode(userID int64, shortCode, longURL string, expireIn int64) (*models.ParamUpdateResponse, error) {
 	// TODO: 校验 userID 是否为该 shortCode 的创建者，更新 longURL
 	return nil, nil
 }

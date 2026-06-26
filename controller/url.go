@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ShortenHandler 创建短链接（公开接口，登录用户可关联身份）
+// ShortenHandler 创建短链接
 func ShortenHandler(c *gin.Context) {
 	var req models.ParamShortenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
