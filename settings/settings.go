@@ -7,11 +7,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Cfg 全局配置，Init 后可用
+var Cfg *Config
+
 type Config struct {
-	Server ServerConfig  `yaml:"server"`
-	MySQL  MySQLConfig   `yaml:"mysql"`
-	Redis  RedisConfig   `yaml:"redis"`
-	Logger LoggerConfig  `yaml:"logger"`
+	Server ServerConfig `yaml:"server"`
+	MySQL  MySQLConfig  `yaml:"mysql"`
+	Redis  RedisConfig  `yaml:"redis"`
+	Logger LoggerConfig `yaml:"logger"`
+}
+
+// BaseURL 返回不带尾部斜杠的服务地址
+func (c *Config) BaseURL() string {
+	return fmt.Sprintf("http://localhost:%d", c.Server.Port)
 }
 
 type ServerConfig struct {
@@ -54,5 +62,6 @@ func Init(configPath string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config failed: %w", err)
 	}
+	Cfg = &cfg
 	return &cfg, nil
 }

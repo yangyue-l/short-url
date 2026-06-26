@@ -17,27 +17,26 @@ func Setup(mode string) *gin.Engine {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
-	// 健康检查
+	// 公开：无需登录
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "pong"})
 	})
+	// 访问短链接
+	r.GET("/:shortCode", controller.RedirectHandler)
 
-	// API 路由
+	// 需要登录
 	v1 := r.Group("/api/v1")
 	v1.Use(middlewares.JWTAuthMiddleware())
 	{
-		// 创建短链接
+		//创建短链接
 		v1.POST("/shorten", controller.ShortenHandler)
-		// 查询短链接信息
+		// 获取短链接信息
 		v1.GET("/:shortCode", controller.ShortenInfoHandler)
 		// 批量创建短链接
 		v1.POST("/batch/shorten", controller.BatchShortenHandler)
-		// 更新短链接
+		// 修改目标链接信息
 		v1.PUT("/:shortCode", controller.UpdateShortenHandler)
 	}
-
-	// 重定向路由（根路径级别的短码访问）
-	r.GET("/:shortCode", controller.RedirectHandler)
 
 	return r
 }

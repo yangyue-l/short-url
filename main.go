@@ -10,6 +10,7 @@ import (
 	"short-url/dao/mysql"
 	"short-url/dao/redis"
 	"short-url/logger"
+	"short-url/logic"
 	"short-url/routes"
 	"short-url/settings"
 	"syscall"
@@ -43,6 +44,16 @@ func main() {
 		zap.L().Fatal("init redis failed", zap.Error(err))
 	}
 	defer redis.Close()
+
+	// 4.1 初始化短码序列（Redis INCR 起点，对齐 DB 已有数据）
+	if maxID, err := mysql.GetMaxURLID(); err == nil {
+		if err := redis.InitShortCodeSeq(maxID + 1); err != nil {
+			zap.L().Warn("init short code seq failed", zap.Error(err))
+		}
+	}
+
+	// 4.2 启动点击计数 worker
+	logic.InitClickWorkers(3)
 
 	// 5. 注册路由
 	r := routes.Setup(cfg.Server.Mode)

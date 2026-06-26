@@ -25,12 +25,9 @@ func DeleteCache(shortCode string) error {
 	return rdb.Del(ctx, URLCachePrefix+shortCode).Err()
 }
 
-func SetRequestID(requestID string) error {
-	return rdb.Set(ctx, RequestIDPrefix+requestID, requestID, RequestIDTTL).Err()
-}
-
-func GetRequestID(requestID string) (string, error) {
-	return rdb.Get(ctx, RequestIDPrefix+requestID).Result()
+// SetRequestIDNX 原子性设置幂等键，返回 true 表示首次设置成功
+func SetRequestIDNX(requestID string) (bool, error) {
+	return rdb.SetNX(ctx, RequestIDPrefix+requestID, "1", RequestIDTTL).Result()
 }
 
 // GetNextShortCodeSeq 获取下一个短码序列号（原子自增），用于预生成短码

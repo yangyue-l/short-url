@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ShortenHandler 创建短链接
+// ShortenHandler 创建短链接（公开接口，登录用户可关联身份）
 func ShortenHandler(c *gin.Context) {
 	var req models.ParamShortenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -19,7 +19,13 @@ func ShortenHandler(c *gin.Context) {
 		return
 	}
 
-	resp, err := logic.CreateShortURL(req.LongURL, req.ExpireIn)
+	userID, err := GetCurrentUser(c)
+	if err != nil {
+		ResponseError(c, CodeNeedLogin)
+		return
+	}
+
+	resp, err := logic.CreateShortURL(userID, req.LongURL, req.CustomCode, req.ExpireIn)
 	if err != nil {
 		zap.L().Error("create short url failed", zap.Error(err))
 		ResponseError(c, CodeServerBusy)
@@ -47,6 +53,7 @@ func RedirectHandler(c *gin.Context) {
 	c.Redirect(http.StatusMovedPermanently, longURL)
 }
 
+// ShortenInfoHandler 查询短链接信息（公开接口）
 func ShortenInfoHandler(c *gin.Context) {
 	shortCode := c.Param("shortCode")
 	if shortCode == "" {
@@ -55,13 +62,14 @@ func ShortenInfoHandler(c *gin.Context) {
 	}
 	resp, err := logic.GetShortenInfo(shortCode)
 	if err != nil {
-		zap.L().Error("logic.GetShortenInfo(shortCode) failed", zap.Error(err))
+		zap.L().Error("logic.GetShortenInfo failed", zap.Error(err))
 		ResponseError(c, CodeNotFound)
 		return
 	}
 	ResponseSuccess(c, resp)
 }
 
+// BatchShortenHandler 批量创建短链接（公开接口，登录用户可关联身份）
 func BatchShortenHandler(c *gin.Context) {
 	var p models.ParamBatchURLRequest
 	if err := c.ShouldBindJSON(&p); err != nil {
@@ -74,7 +82,14 @@ func BatchShortenHandler(c *gin.Context) {
 		ResponseError(c, CodeInvalidParam)
 		return
 	}
-	resp, err := logic.CreateBatchShortURL(&p)
+
+	userID, err := GetCurrentUser(c)
+	if err != nil {
+		ResponseError(c, CodeNeedLogin)
+		return
+	}
+
+	resp, err := logic.CreateBatchShortURL(userID, &p)
 	if err != nil {
 		if errors.Is(err, logic.ErrRequestAlreadyProcessed) {
 			ResponseError(c, CodeRequestAlreadyProcessed)
@@ -87,17 +102,25 @@ func BatchShortenHandler(c *gin.Context) {
 	ResponseSuccess(c, resp)
 }
 
+// UpdateShortenHandler 更新短链接（需要登录 + 所有权校验）
 func UpdateShortenHandler(c *gin.Context) {
-	var p *models.ParamUpdateRequest
-	if err := c.ShouldBind(&p); err != nil {
+	var p models.ParamUpdateRequest
+	if err := c.ShouldBindJSON(&p); err != nil {
 		zap.L().Warn("invalid params", zap.Error(err))
 		ResponseError(c, CodeInvalidParam)
 		return
 	}
-	//userID, err := GetCurrentUser(c)
-	resp, err := logic.UpdateShortCode()
+
+	shortCode := c.Param("shortCode")
+	userID, err := GetCurrentUser(c)
 	if err != nil {
-		zap.L().Error("logic.UpdateShortCode() failed", zap.Error(err))
+		ResponseError(c, CodeNeedLogin)
+		return
+	}
+
+	resp, err := logic.UpdateShortCode(userID, shortCode, p.LongURL, p.ExpireIn)
+	if err != nil {
+		zap.L().Error("logic.UpdateShortCode failed", zap.Error(err))
 		ResponseError(c, CodeServerBusy)
 		return
 	}

@@ -7,28 +7,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const CtxUserIdKey = "userID"
+const CtxUserIDKey = "userID"
 
 var ErrorUserNotLogin = errors.New("用户未登录")
 
 // GetCurrentUser 获取当前登录用户的ID
-func GetCurrentUser(c *gin.Context) (userID int64, err error) {
-	uid, ok := c.Get(CtxUserIdKey)
+func GetCurrentUser(c *gin.Context) (uint64, error) {
+	uid, ok := c.Get(CtxUserIDKey)
 	if !ok {
-		err = ErrorUserNotLogin
-		return
+		return 0, ErrorUserNotLogin
 	}
-	userID, ok = uid.(int64)
+	userID, ok := uid.(uint64)
 	if !ok {
-		err = ErrorUserNotLogin
-		return
+		return 0, ErrorUserNotLogin
 	}
-	return
+	return userID, nil
 }
 
+// GetPageInfo 从 query string 获取分页参数，默认 page=1, page_size=10
 func GetPageInfo(c *gin.Context) (int64, int64) {
 	pageStr := c.Query("page")
-	sizeStr := c.Query("size")
+	sizeStr := c.Query("page_size")
 
 	var (
 		page int64

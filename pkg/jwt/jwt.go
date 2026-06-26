@@ -12,29 +12,28 @@ const TokenExpireDuration = time.Hour * 2
 var mySecret = []byte("yangyue")
 
 type MyClaims struct {
-	UserID   int64  `json:"userId,string"`
+	UserID   uint64 `json:"userId,string"`
 	Username string `json:"username"`
 	jwt.RegisteredClaims
 }
 
-// GenToken 生成token
-func GenToken(userID int64, userName string) (string, error) {
+// GenToken 生成 Token
+func GenToken(userID uint64, userName string) (string, error) {
 	c := MyClaims{
 		UserID:   userID,
 		Username: userName,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(TokenExpireDuration)), //过期时间
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(TokenExpireDuration)),
 			Issuer:    "shorturl",
 		},
 	}
-	//使用指定的签名方法创建签名对象
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, c)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
 	return token.SignedString(mySecret)
 }
 
+// ParseToken 解析 Token
 func ParseToken(tokenString string) (*MyClaims, error) {
 	var mc = new(MyClaims)
-
 	token, err := jwt.ParseWithClaims(tokenString, mc, func(token *jwt.Token) (any, error) {
 		return mySecret, nil
 	})
