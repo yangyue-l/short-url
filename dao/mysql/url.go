@@ -10,13 +10,6 @@ func CreateURL(url *models.URL) error {
 	return db.Create(url).Error
 }
 
-// GetMaxURLID 获取当前最大的 URL ID，用于初始化短码序列
-func GetMaxURLID() (uint64, error) {
-	var maxID uint64
-	err := db.Model(&models.URL{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error
-	return maxID, err
-}
-
 func GetURLByShortCode(shortCode string) (*models.URL, error) {
 	var url models.URL
 	err := db.Where("short_code = ?", shortCode).First(&url).Error

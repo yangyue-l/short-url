@@ -1,8 +1,6 @@
 package logic
 
 import (
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"short-url/dao/mysql"
@@ -20,54 +18,20 @@ var (
 	ErrRequestAlreadyProcessed = errors.New("request already processed")
 )
 
-// generateShortCode 生成唯一短码：优先 Redis 原子自增，不可用时回退随机数
-func generateShortCode() string {
-	seq, err := redis.GetNextShortCodeSeq()
-	if err == nil {
-		return base62.Encode(seq)
-	}
-	return randomShortCode()
-}
-
-// randomShortCode 64-bit 随机数 → Base62 编码，用于 Redis 不可用或碰撞重试
-func randomShortCode() string {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
-	}
-	return base62.Encode(binary.BigEndian.Uint64(b[:]))
-}
-
-// createURL 创建一条 URL 记录，自动生成短码，冲突时重试
+// createURL 创建一条 URL 记录。自定义短码直接插入，自动短码先插入再回写编码后的自增 ID
 func createURL(url *models.URL) error {
-	const maxRetries = 3
-
-	hasCustom := url.ShortCode != ""
-
-	for i := range maxRetries {
-		if !hasCustom {
-			if i == 0 {
-				url.ShortCode = generateShortCode() // 首次：Redis INCR（快且不碰撞）
-			} else {
-				url.ShortCode = randomShortCode() // 重试：随机数（避免 Redis 序列被重置后连续碰撞）
-			}
-		}
-
-		err := mysql.CreateURL(url)
-		if err == nil {
-			return nil
-		}
-
-		if !errors.Is(err, gorm.ErrDuplicatedKey) {
-			return err
-		}
-
-		// 自定义短码冲突直接返回
-		if hasCustom {
-			return err
-		}
+	if err := mysql.CreateURL(url); err != nil {
+		return err
 	}
-	return fmt.Errorf("short code generation failed after %d retries", maxRetries)
+	// 自动短码：用 MySQL 自增 ID 做 Base62 编码，保证唯一且不依赖任何外部组件
+	if url.ShortCode == "" {
+		shortCode := base62.Encode(url.ID)
+		if err := mysql.UpdateShortCode(url.ID, shortCode); err != nil {
+			return err
+		}
+		url.ShortCode = shortCode
+	}
+	return nil
 }
 
 // cacheURL 异步将短链接写入 Redis 缓存（丢失败不阻塞主流程）
