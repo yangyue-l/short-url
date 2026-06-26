@@ -24,6 +24,7 @@ func Setup(mode string) *gin.Engine {
 
 	// API 路由
 	v1 := r.Group("/api/v1")
+	v1.Use(middlewares.JWTAuthMiddleware())
 	{
 		// 创建短链接
 		v1.POST("/shorten", controller.ShortenHandler)
@@ -31,6 +32,8 @@ func Setup(mode string) *gin.Engine {
 		v1.GET("/:shortCode", controller.ShortenInfoHandler)
 		// 批量创建短链接
 		v1.POST("/batch/shorten", controller.BatchShortenHandler)
+		// 更新短链接
+		v1.PUT("/:shortCode", controller.UpdateShortenHandler)
 	}
 
 	// 重定向路由（根路径级别的短码访问）

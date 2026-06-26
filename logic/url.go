@@ -242,3 +242,7 @@ func CreateBatchShortURL(p *models.ParamBatchURLRequest) (*models.ParamBatchURLR
 
 	return resp, nil
 }
+
+func UpdateShortCode() (*models.ParamUpdateResponse, error) {
+	return nil, nil
+}

@@ -86,3 +86,20 @@ func BatchShortenHandler(c *gin.Context) {
 	}
 	ResponseSuccess(c, resp)
 }
+
+func UpdateShortenHandler(c *gin.Context) {
+	var p *models.ParamUpdateRequest
+	if err := c.ShouldBind(&p); err != nil {
+		zap.L().Warn("invalid params", zap.Error(err))
+		ResponseError(c, CodeInvalidParam)
+		return
+	}
+	//userID, err := GetCurrentUser(c)
+	resp, err := logic.UpdateShortCode()
+	if err != nil {
+		zap.L().Error("logic.UpdateShortCode() failed", zap.Error(err))
+		ResponseError(c, CodeServerBusy)
+		return
+	}
+	ResponseSuccess(c, resp)
+}

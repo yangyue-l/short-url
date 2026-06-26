@@ -14,14 +14,19 @@ const (
 	CodeNotFound
 	CodeServerBusy
 	CodeRequestAlreadyProcessed
+
+	CodeNeedLogin
+	CodeInvalidToken
 )
 
 var codeMsg = map[ResponseCode]string{
 	CodeSuccess:                 "success",
-	CodeInvalidParam:            "invalid parameters",
-	CodeNotFound:                "not found",
-	CodeServerBusy:              "server busy",
-	CodeRequestAlreadyProcessed: "request already processed",
+	CodeInvalidParam:            "请求参数错误",
+	CodeNotFound:                "没有找到对应的参数",
+	CodeServerBusy:              "服务繁忙",
+	CodeRequestAlreadyProcessed: "请求已经处理",
+	CodeNeedLogin:               "需要登录",
+	CodeInvalidToken:            "无效的token",
 }
 
 type Response struct {

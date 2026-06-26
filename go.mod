@@ -3,8 +3,10 @@ module short-url
 go 1.26
 
 require (
+	github.com/bwmarrin/snowflake v0.3.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-redis/redis/v8 v8.11.5
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	go.uber.org/zap v1.28.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1

@@ -52,3 +52,56 @@ type ParamURLsResponse struct {
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
 }
+
+// ParamUpdateRequest 更新短链接请求体
+type ParamUpdateRequest struct {
+	LongURL  string `json:"long_url" binding:"required,url"`
+	ExpireIn int64  `json:"expire_in"`
+}
+
+type ParamUpdateResponse struct {
+	ShortCode string `json:"short_code"`
+	LongURL   string `json:"long_url"`
+	ExpireAt  string `json:"expire_at,omitempty"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// ---------- 用户相关参数 ----------
+
+// ParamRegisterRequest 用户注册请求
+type ParamRegisterRequest struct {
+	Username string `json:"username" binding:"required,min=3,max=32"`
+	Password string `json:"password" binding:"required,min=6,max=32"`
+	Email    string `json:"email"`
+}
+
+// ParamRegisterResponse 用户注册响应
+type ParamRegisterResponse struct {
+	UserID   uint64 `json:"user_id"`
+	Username string `json:"username"`
+}
+
+// ParamLoginRequest 用户登录请求
+type ParamLoginRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// ParamUserBrief 用户简要信息
+type ParamUserBrief struct {
+	ID       uint64 `json:"id"`
+	Username string `json:"username"`
+}
+
+// ParamLoginResponse 用户登录响应
+type ParamLoginResponse struct {
+	Token    string         `json:"token"`
+	ExpireAt string         `json:"expire_at"`
+	User     ParamUserBrief `json:"user"`
+}
+
+// ParamRefreshResponse 刷新 Token 响应
+type ParamRefreshResponse struct {
+	Token    string `json:"token"`
+	ExpireAt string `json:"expire_at"`
+}
