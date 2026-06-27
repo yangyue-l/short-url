@@ -38,6 +38,9 @@ func Setup(mode string) *gin.Engine {
 		v1.POST("/batch/shorten", controller.BatchShortenHandler)
 		// 修改目标链接信息
 		v1.PUT("/:shortCode", controller.UpdateShortenHandler)
+
+		// 注销账户
+		v1.DELETE("/user/account", controller.DeleteUserHandler)
 	}
 
 	v2 := r.Group("/api/v1")

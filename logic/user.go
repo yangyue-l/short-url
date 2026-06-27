@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 var (
@@ -78,4 +79,16 @@ func UserRefresh(tokenString string) (*models.ParamRefreshResponse, error) {
 		RefreshToken: rToken,
 		ExpireAt:     time.Now().Add(jwt.AccessTokenExpireDuration).Format(time.RFC3339),
 	}, nil
+}
+
+func DeleteUser(userID int64) error {
+	return mysql.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", userID).Delete(&models.URL{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id = ?", userID).Delete(&models.User{}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
 }

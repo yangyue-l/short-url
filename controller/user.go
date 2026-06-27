@@ -65,3 +65,17 @@ func UserRefreshHandler(c *gin.Context) {
 	}
 	ResponseSuccess(c, resp)
 }
+
+func DeleteUserHandler(c *gin.Context) {
+	userID, err := GetCurrentUser(c)
+	if err != nil {
+		ResponseError(c, CodeNeedLogin)
+		return
+	}
+	if err := logic.DeleteUser(userID); err != nil {
+		zap.L().Error("logic.DeleteUser failed", zap.Error(err))
+		ResponseError(c, CodeServerBusy)
+		return
+	}
+	ResponseSuccess(c, nil)
+}
