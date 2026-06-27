@@ -32,14 +32,21 @@ func UserRegister(p *models.ParamRegisterRequest) (*models.ParamRegisterResponse
 	return resp, nil
 }
 
-func UserLogin(p *models.ParamLoginRequest) (string, error) {
+func UserLogin(p *models.ParamLoginRequest) (*models.ParamLoginResponse, error) {
 	user, err := mysql.GetUserByUsername(p.Username)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	token, err := jwt.GenToken(user.ID, user.Username)
+
+	aToken, rToken, err := jwt.GenToken(user.ID, user.Username)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return token, nil
+	resp := &models.ParamLoginResponse{
+		Token:        aToken,
+		RefreshToken: rToken,
+		ExpireAt:     time.Now().Add(jwt.AccessTokenExpireDuration).Format(time.RFC3339),
+	}
+
+	return resp, err
 }

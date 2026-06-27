@@ -10,7 +10,7 @@ import (
 
 func UserRegisterHandler(c *gin.Context) {
 	var p *models.ParamRegisterRequest
-	if err := c.ShouldBindJSON(p); err != nil {
+	if err := c.ShouldBindJSON(&p); err != nil {
 		zap.L().Error("invalid params", zap.Error(err))
 		ResponseError(c, CodeInvalidParam)
 		return
@@ -26,16 +26,17 @@ func UserRegisterHandler(c *gin.Context) {
 
 func UserLoginHandler(c *gin.Context) {
 	var p *models.ParamLoginRequest
-	if err := c.ShouldBindJSON(p); err != nil {
+	if err := c.ShouldBindJSON(&p); err != nil {
 		zap.L().Error("invalid params", zap.Error(err))
 		ResponseError(c, CodeInvalidParam)
 		return
 	}
-	token, err := logic.UserLogin(p)
+	resp, err := logic.UserLogin(p)
 	if err != nil {
 		zap.L().Error("logic.UserLogin(p) failed", zap.Error(err))
 		ResponseError(c, CodeServerBusy)
 		return
 	}
-	ResponseSuccess(c, token)
+
+	ResponseSuccess(c, resp)
 }

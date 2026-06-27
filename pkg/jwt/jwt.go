@@ -7,7 +7,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const TokenExpireDuration = time.Hour * 2
+const (
+	AccessTokenExpireDuration  = time.Minute * 15
+	RefreshTokenExpireDuration = time.Hour * 24 * 7
+)
 
 var mySecret = []byte("yangyue")
 
@@ -18,17 +21,26 @@ type MyClaims struct {
 }
 
 // GenToken 生成 Token
-func GenToken(userID int64, userName string) (string, error) {
+func GenToken(userID int64, userName string) (aToken, rToken string, err error) {
 	c := MyClaims{
 		UserID:   userID,
 		Username: userName,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(TokenExpireDuration)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(AccessTokenExpireDuration)),
 			Issuer:    "shorturl",
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
-	return token.SignedString(mySecret)
+	aToken, err = jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(mySecret)
+	r := MyClaims{
+		UserID:   userID,
+		Username: userName,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenExpireDuration)),
+			Issuer:    "shorturl",
+		},
+	}
+	rToken, err = jwt.NewWithClaims(jwt.SigningMethodES256, r).SignedString(mySecret)
+	return
 }
 
 // ParseToken 解析 Token
