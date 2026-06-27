@@ -89,13 +89,16 @@ type ParamLoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// ParamLoginResponse 用户登录返回参数
 type ParamLoginResponse struct {
 	Token        string `json:"token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpireAt     string `json:"expire_at,omitempty"`
 }
 
-// ParamRefreshResponse 刷新 Token 响应
+// ParamRefreshResponse 刷新 Token 响应（同时下发新的 access token 和 refresh token）
 type ParamRefreshResponse struct {
-	Token string `json:"token"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpireAt     string `json:"expire_at,omitempty"`
 }

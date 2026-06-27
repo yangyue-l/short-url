@@ -40,10 +40,11 @@ func Setup(mode string) *gin.Engine {
 		v1.PUT("/:shortCode", controller.UpdateShortenHandler)
 	}
 
-	v2 := r.Group("api/v1")
+	v2 := r.Group("/api/v1")
 	{
 		v2.POST("/auth/register", controller.UserRegisterHandler)
 		v2.POST("/auth/login", controller.UserLoginHandler)
+		v2.POST("/auth/refresh", controller.UserRefreshHandler)
 	}
 
 	return r
