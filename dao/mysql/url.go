@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"short-url/models"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -28,6 +29,25 @@ func IncrementClickCnt(shortCode string) error {
 	return db.Model(&models.URL{}).
 		Where("short_code = ?", shortCode).
 		UpdateColumn("click_cnt", gorm.Expr("click_cnt + 1")).Error
+}
+
+func UpdateLongURLByShort(shortCode, longCode string) error {
+	return db.Model(&models.URL{}).
+		Where("short_code = ?", shortCode).
+		UpdateColumn("long_url", longCode).Error
+}
+
+// UpdateURL 更新短链接的 long_url 和 expire_at
+// expireAt 为 nil 时保持不变，非 nil 时更新（可用于清除过期时间）
+func UpdateURL(shortCode, longURL string, expireAt *time.Time) error {
+	updates := map[string]any{
+		"long_url":   longURL,
+		"updated_at": time.Now(),
+	}
+	if expireAt != nil {
+		updates["expire_at"] = expireAt
+	}
+	return db.Model(&models.URL{}).Where("short_code = ?", shortCode).Updates(updates).Error
 }
 
 // GetURLsByUserID 分页获取用户的短链接列表

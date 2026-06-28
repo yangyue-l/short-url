@@ -231,8 +231,40 @@ func CreateBatchShortURL(userID int64, p *models.ParamBatchURLRequest) (*models.
 	return resp, nil
 }
 
-// UpdateShortCode 更新短链接（需要 ownership 校验）
-func UpdateShortCode(userID int64, shortCode, longURL string, expireIn int64) (*models.ParamUpdateResponse, error) {
-	// TODO: 校验 userID 是否为该 shortCode 的创建者，更新 longURL
-	return nil, nil
+// UpdateLongURL 更新短链接的目标地址（需要所有权校验）
+func UpdateLongURL(userID int64, shortCode string, p *models.ParamUpdateRequest) (*models.ParamUpdateResponse, error) {
+	url, err := mysql.GetURLByShortCodeAndUser(shortCode, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("短链接不存在或无权操作")
+		}
+		return nil, err
+	}
+
+	var expireAt *time.Time
+	if p.ExpireIn > 0 {
+		t := time.Now().Add(time.Duration(p.ExpireIn) * time.Second)
+		expireAt = &t
+	}
+
+	if err := mysql.UpdateURL(shortCode, p.LongURL, expireAt); err != nil {
+		zap.L().Error("update url failed", zap.Error(err))
+		return nil, errors.New("update failed")
+	}
+
+	// 清除旧缓存，下次重定向走 MySQL 拿新地址
+	_ = redis.DeleteCache(shortCode)
+
+	resp := &models.ParamUpdateResponse{
+		ShortCode: shortCode,
+		LongURL:   p.LongURL,
+		UpdatedAt: time.Now().Format(time.RFC3339),
+	}
+	if expireAt != nil {
+		resp.ExpireAt = expireAt.Format(time.RFC3339)
+	} else if url.ExpireAt != nil {
+		resp.ExpireAt = url.ExpireAt.Format(time.RFC3339)
+	}
+
+	return resp, nil
 }

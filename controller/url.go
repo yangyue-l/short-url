@@ -53,7 +53,7 @@ func RedirectHandler(c *gin.Context) {
 	c.Redirect(http.StatusMovedPermanently, longURL)
 }
 
-// ShortenInfoHandler 查询短链接信息（公开接口）
+// ShortenInfoHandler 查询短链接信息
 func ShortenInfoHandler(c *gin.Context) {
 	shortCode := c.Param("shortCode")
 	if shortCode == "" {
@@ -69,7 +69,7 @@ func ShortenInfoHandler(c *gin.Context) {
 	ResponseSuccess(c, resp)
 }
 
-// BatchShortenHandler 批量创建短链接（公开接口，登录用户可关联身份）
+// BatchShortenHandler 批量创建短链接
 func BatchShortenHandler(c *gin.Context) {
 	var p models.ParamBatchURLRequest
 	if err := c.ShouldBindJSON(&p); err != nil {
@@ -102,8 +102,8 @@ func BatchShortenHandler(c *gin.Context) {
 	ResponseSuccess(c, resp)
 }
 
-// UpdateShortenHandler 更新短链接（需要登录 + 所有权校验）
-func UpdateShortenHandler(c *gin.Context) {
+// UpdateLongURLHandler 更新短链接（需要登录 + 所有权校验）
+func UpdateLongURLHandler(c *gin.Context) {
 	var p models.ParamUpdateRequest
 	if err := c.ShouldBindJSON(&p); err != nil {
 		zap.L().Warn("invalid params", zap.Error(err))
@@ -118,9 +118,9 @@ func UpdateShortenHandler(c *gin.Context) {
 		return
 	}
 
-	resp, err := logic.UpdateShortCode(userID, shortCode, p.LongURL, p.ExpireIn)
+	resp, err := logic.UpdateLongURL(userID, shortCode, &p)
 	if err != nil {
-		zap.L().Error("logic.UpdateShortCode failed", zap.Error(err))
+		zap.L().Error("logic.UpdateLongURL failed", zap.Error(err))
 		ResponseError(c, CodeServerBusy)
 		return
 	}

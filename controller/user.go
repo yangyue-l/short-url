@@ -77,5 +77,5 @@ func DeleteUserHandler(c *gin.Context) {
 		ResponseError(c, CodeServerBusy)
 		return
 	}
-	ResponseSuccess(c, nil)
+	ResponseSuccess(c, CodeSuccess)
 }
