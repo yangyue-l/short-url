@@ -268,3 +268,45 @@ func UpdateLongURL(userID int64, shortCode string, p *models.ParamUpdateRequest)
 
 	return resp, nil
 }
+
+func DeleteShortURL(userID int64, shortCode string) error {
+	if err := mysql.DeleteURL(userID, shortCode); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("短链接不存在或无权操作")
+		}
+		return err
+	}
+	_ = redis.DeleteCache(shortCode)
+	return nil
+}
+
+func GetUserURLs(userID int64, page, pageSize int) (*models.ParamUserURLsResponse, error) {
+	urls, total, err := mysql.GetURLsByUserID(userID, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	baseURL := settings.Cfg.BaseURL()
+	list := make([]*models.ParamUserURLsList, 0, len(urls))
+	for _, url := range urls {
+		item := &models.ParamUserURLsList{
+			ShortCode: url.ShortCode,
+			ShortURL:  fmt.Sprintf("%s/%s", baseURL, url.ShortCode),
+			LongURL:   url.LongURL,
+			ClickCnt:  url.ClickCnt,
+			IsExpired: url.ExpireAt != nil && url.ExpireAt.Before(time.Now()),
+			CreatedAt: url.CreatedAt.Format(time.RFC3339),
+		}
+		if url.ExpireAt != nil {
+			item.ExpireAt = url.ExpireAt.Format(time.RFC3339)
+		}
+
+		list = append(list, item)
+	}
+	return &models.ParamUserURLsResponse{
+		List:     list,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}

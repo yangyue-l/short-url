@@ -126,3 +126,34 @@ func UpdateLongURLHandler(c *gin.Context) {
 	}
 	ResponseSuccess(c, resp)
 }
+
+func DeleteShortenHandler(c *gin.Context) {
+	userID, err := GetCurrentUser(c)
+	if err != nil {
+		ResponseError(c, CodeNeedLogin)
+		return
+	}
+	shortCode := c.Param("shortCode")
+	if err := logic.DeleteShortURL(userID, shortCode); err != nil {
+		zap.L().Error("logic.DeleteShortURL(userID, shortCode) failed", zap.Error(err))
+		ResponseError(c, CodeServerBusy)
+		return
+	}
+	ResponseSuccess(c, nil)
+}
+
+func GetURLsHandler(c *gin.Context) {
+	userID, err := GetCurrentUser(c)
+	if err != nil {
+		ResponseError(c, CodeNeedLogin)
+		return
+	}
+	page, pageSize := GetPageInfo(c)
+	resp, err := logic.GetUserURLs(userID, int(page), int(pageSize))
+	if err != nil {
+		zap.L().Error("logic.GetUserURLs failed", zap.Error(err))
+		ResponseError(c, CodeServerBusy)
+		return
+	}
+	ResponseSuccess(c, resp)
+}

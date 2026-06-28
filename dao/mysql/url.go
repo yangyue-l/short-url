@@ -50,6 +50,17 @@ func UpdateURL(shortCode, longURL string, expireAt *time.Time) error {
 	return db.Model(&models.URL{}).Where("short_code = ?", shortCode).Updates(updates).Error
 }
 
+func DeleteURL(userID int64, shortCode string) error {
+	result := db.Where("user_id = ? AND short_code = ?", userID, shortCode).Delete(&models.URL{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 // GetURLsByUserID 分页获取用户的短链接列表
 func GetURLsByUserID(userID int64, page, pageSize int) ([]models.URL, int64, error) {
 	var urls []models.URL

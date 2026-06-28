@@ -68,6 +68,23 @@ type ParamUpdateResponse struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type ParamUserURLsResponse struct {
+	List     []*ParamUserURLsList `json:"list"`
+	Total    int64                `json:"total"`
+	Page     int                  `json:"page"`
+	PageSize int                  `json:"page_size"`
+}
+
+type ParamUserURLsList struct {
+	ShortCode string `json:"short_code"`
+	ShortURL  string `json:"short_url"`
+	LongURL   string `json:"long_url"`
+	ClickCnt  int64  `json:"click_cnt"`
+	IsExpired bool   `json:"is_expired"`
+	ExpireAt  string `json:"expire_at,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
 // ---------- 用户相关参数 ----------
 
 // ParamRegisterRequest 用户注册请求
