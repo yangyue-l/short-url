@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"errors"
+	"short-url/settings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -12,25 +13,33 @@ const (
 	RefreshTokenExpireDuration = time.Hour * 24 * 7
 )
 
-var mySecret = []byte("yangyue")
+// getSecret 从全局配置读取 JWT 签名密钥
+func getSecret() []byte {
+	if settings.Cfg != nil && settings.Cfg.JWT.Secret != "" {
+		return []byte(settings.Cfg.JWT.Secret)
+	}
+	return []byte("yangyue")
+}
 
 type MyClaims struct {
 	UserID   int64  `json:"userId,string"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
 	jwt.RegisteredClaims
 }
 
 // GenToken 生成 Token（返回 access token 和 refresh token）
-func GenToken(userID int64, userName string) (aToken, rToken string, err error) {
+func GenToken(userID int64, userName, role string) (aToken, rToken string, err error) {
 	accessClaims := MyClaims{
 		UserID:   userID,
 		Username: userName,
+		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(AccessTokenExpireDuration)),
 			Issuer:    "shorturl",
 		},
 	}
-	aToken, err = jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString(mySecret)
+	aToken, err = jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString(getSecret())
 	if err != nil {
 		return "", "", err
 	}
@@ -38,12 +47,13 @@ func GenToken(userID int64, userName string) (aToken, rToken string, err error) 
 	refreshClaims := MyClaims{
 		UserID:   userID,
 		Username: userName,
+		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenExpireDuration)),
 			Issuer:    "shorturl",
 		},
 	}
-	rToken, err = jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(mySecret)
+	rToken, err = jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(getSecret())
 	return
 }
 
@@ -51,7 +61,7 @@ func GenToken(userID int64, userName string) (aToken, rToken string, err error) 
 func ParseToken(tokenString string) (*MyClaims, error) {
 	var mc = new(MyClaims)
 	token, err := jwt.ParseWithClaims(tokenString, mc, func(token *jwt.Token) (any, error) {
-		return mySecret, nil
+		return getSecret(), nil
 	})
 	if err != nil {
 		return nil, err
@@ -66,7 +76,7 @@ func ParseToken(tokenString string) (*MyClaims, error) {
 func ParseTokenForRefresh(tokenString string) (*MyClaims, error) {
 	var mc = new(MyClaims)
 	token, err := jwt.ParseWithClaims(tokenString, mc, func(token *jwt.Token) (any, error) {
-		return mySecret, nil
+		return getSecret(), nil
 	}, jwt.WithLeeway(RefreshTokenExpireDuration))
 	if err != nil {
 		return nil, err

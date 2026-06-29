@@ -123,8 +123,6 @@ func (p *ConnPool) reconnectLoop() {
 			}
 
 			// 检查最大重试次数
-			p.mu.Lock()
-			p.mu.Unlock()
 			if p.cfg.Reconnect.MaxRetry > 0 && p.failCnt >= p.cfg.Reconnect.MaxRetry {
 				zap.L().Error("RabbitMQ reconnect max retry reached",
 					zap.Int("maxRetry", p.cfg.Reconnect.MaxRetry))

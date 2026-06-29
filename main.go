@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +11,7 @@ import (
 	"short-url/dao/redis"
 	"short-url/logger"
 	"short-url/mq"
+	"short-url/pkg/snowflake"
 	"short-url/routes"
 	"short-url/settings"
 	"syscall"
@@ -34,36 +34,41 @@ func main() {
 	defer zap.L().Sync()
 	zap.L().Debug("logger init success")
 
-	// 3. 初始化 MySQL
+	// 3. 初始化雪花 ID 生成器
+	if err := snowflake.Init(cfg.Snowflake.StartTime, cfg.Snowflake.MachineID); err != nil {
+		zap.L().Fatal("init snowflake failed", zap.Error(err))
+	}
+
+	// 4. 初始化 MySQL
 	if err := mysql.Init(&cfg.MySQL); err != nil {
 		zap.L().Fatal("init mysql failed", zap.Error(err))
 	}
 	defer mysql.Close()
 
-	// 4. 初始化 Redis
+	// 5. 初始化 Redis
 	if err := redis.Init(&cfg.Redis); err != nil {
 		zap.L().Fatal("init redis failed", zap.Error(err))
 	}
 	defer redis.Close()
 
-	// 5. 初始化 RabbitMQ 连接池
+	// 6. 初始化 RabbitMQ 连接池
 	if err := mq.Init(&cfg.RabbitMQ); err != nil {
 		zap.L().Fatal("init RabbitMQ failed", zap.Error(err))
 	}
 	defer mq.Close()
 
-	// 6. 启动 MQ 消费者（批量聚合 + 写 Redis）
+	// 7. 启动 MQ 消费者（批量聚合 + 写 Redis）
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	mq.StartConsumers(ctx, cfg.RabbitMQ.Consumer.Workers)
 
-	// 7. 启动定时回刷任务（Redis → MySQL）
+	// 8. 启动定时回刷任务（Redis → MySQL）
 	cron.StartFlushJob(ctx)
 
-	// 8. 注册路由
+	// 9. 注册路由
 	r := routes.Setup(cfg.Server.Mode)
 
-	// 9. 启动服务（支持优雅关闭）
+	// 10. 启动服务（支持优雅关闭）
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: r,
@@ -93,5 +98,5 @@ func main() {
 	cancel()
 	mq.StopConsumers()
 
-	log.Println("server exited")
+	zap.L().Info("server exited")
 }

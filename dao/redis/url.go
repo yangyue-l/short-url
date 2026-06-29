@@ -2,6 +2,8 @@ package redis
 
 import (
 	"time"
+
+	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -21,6 +23,11 @@ func GetCachedURL(shortCode string) (string, error) {
 
 func DeleteCache(shortCode string) error {
 	return rdb.Del(ctx, URLCachePrefix+shortCode).Err()
+}
+
+// DeleteCacheByClient 通过传入的 client 删除缓存（供 goroutine 复用）
+func DeleteCacheByClient(client *redis.Client, shortCode string) {
+	client.Del(client.Context(), URLCachePrefix+shortCode)
 }
 
 // SetRequestIDNX 原子性设置幂等键，返回 true 表示首次设置成功

@@ -87,3 +87,37 @@ func FlushPV(client *redis.Client, shortCode string) int64 {
 func CleanActive(client *redis.Client, codes ...string) {
 	client.ZRem(client.Context(), ClickActiveSet, codes)
 }
+
+const ClickTodayPrefix = "click:today:"
+
+// IncrTodayClick 增加今日全局点击数
+func IncrTodayClick(client *redis.Client, delta int64) {
+	today := time.Now().Format("2006-01-02")
+	client.IncrBy(client.Context(), ClickTodayPrefix+today, delta)
+}
+
+// GetTodayClick 获取今日全局点击数（Redis 侧）
+func GetTodayClick(client *redis.Client) int64 {
+	today := time.Now().Format("2006-01-02")
+	val, err := client.Get(client.Context(), ClickTodayPrefix+today).Int64()
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
+// SumActivePV 汇总所有活跃短码的 Redis PV 增量
+func SumActivePV(client *redis.Client, since int64) int64 {
+	codes, err := GetActiveShortCodes(client, since)
+	if err != nil || len(codes) == 0 {
+		return 0
+	}
+	var total int64
+	for _, code := range codes {
+		val, err := client.Get(client.Context(), ClickPVPrefix+code).Int64()
+		if err == nil {
+			total += val
+		}
+	}
+	return total
+}

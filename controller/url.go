@@ -163,6 +163,37 @@ func GetURLsHandler(c *gin.Context) {
 	ResponseSuccess(c, resp)
 }
 
+// GetAdminURLsHandler 管理员全局短链接列表
+func GetAdminURLsHandler(c *gin.Context) {
+	page, pageSize := GetPageInfo(c)
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	keyword := c.Query("keyword")
+	status := c.Query("status")
+	sort := c.Query("sort")
+	order := c.Query("order")
+
+	resp, err := logic.GetAdminURLs(int(page), int(pageSize), keyword, status, sort, order)
+	if err != nil {
+		zap.L().Error("logic.GetAdminURLs failed", zap.Error(err))
+		ResponseError(c, CodeServerBusy)
+		return
+	}
+	ResponseSuccess(c, resp)
+}
+
+// GetStatsOverviewHandler 全局统计概览
+func GetStatsOverviewHandler(c *gin.Context) {
+	resp, err := logic.GetStatsOverview()
+	if err != nil {
+		zap.L().Error("logic.GetStatsOverview failed", zap.Error(err))
+		ResponseError(c, CodeServerBusy)
+		return
+	}
+	ResponseSuccess(c, resp)
+}
+
 func GetShortStatsHandler(c *gin.Context) {
 	userID, err := GetCurrentUser(c)
 	if err != nil {

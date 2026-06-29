@@ -7,7 +7,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const CtxUserIDKey = "userID"
+const (
+	CtxUserIDKey = "userID"
+	CtxRoleKey   = "role"
+)
 
 var ErrorUserNotLogin = errors.New("用户未登录")
 
@@ -22,6 +25,19 @@ func GetCurrentUser(c *gin.Context) (int64, error) {
 		return 0, ErrorUserNotLogin
 	}
 	return userID, nil
+}
+
+// GetCurrentUserRole 获取当前登录用户的角色
+func GetCurrentUserRole(c *gin.Context) (string, error) {
+	role, ok := c.Get(CtxRoleKey)
+	if !ok {
+		return "", ErrorUserNotLogin
+	}
+	r, ok := role.(string)
+	if !ok {
+		return "", ErrorUserNotLogin
+	}
+	return r, nil
 }
 
 // GetPageInfo 从 query string 获取分页参数，默认 page=1, page_size=10

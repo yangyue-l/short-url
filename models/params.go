@@ -139,3 +139,34 @@ type ParamRefreshResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	ExpireAt     string `json:"expire_at,omitempty"`
 }
+
+// ─── 管理员短链列表 ───
+
+type ParamAdminURLsList struct {
+	ShortCode string `json:"short_code"`
+	ShortURL  string `json:"short_url"`
+	LongURL   string `json:"long_url"`
+	ClickCnt  int64  `json:"click_cnt"`
+	IsExpired bool   `json:"is_expired"`
+	CreatedAt string `json:"created_at"`
+	UserID    int64  `json:"user_id"`
+	Username  string `json:"username"`
+}
+
+type ParamAdminURLsResponse struct {
+	List     []*ParamAdminURLsList `json:"list"`
+	Total    int64                 `json:"total"`
+	Page     int                   `json:"page"`
+	PageSize int                   `json:"page_size"`
+}
+
+// ─── 全局统计概览 ───
+
+type ParamStatsOverviewResponse struct {
+	TotalURLs    int64 `json:"total_urls"`
+	TotalClicks  int64 `json:"total_clicks"`
+	ActiveURLs   int64 `json:"active_urls"`
+	ExpiredURLs  int64 `json:"expired_urls"`
+	TodayCreated int64 `json:"today_created"`
+	TodayClicks  int64 `json:"today_clicks"`
+}

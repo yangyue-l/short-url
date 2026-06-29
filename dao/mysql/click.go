@@ -105,6 +105,20 @@ func GetClickStats(shortCode string) (*models.ClickStats, error) {
 	return stats, nil
 }
 
+// GetGlobalClickStats 获取全局点击统计（MySQL 侧）
+func GetGlobalClickStats() (totalMySQL int64, todayMySQL int64, err error) {
+	if err := db.Model(&models.URL{}).Select("COALESCE(SUM(click_cnt), 0)").Scan(&totalMySQL).Error; err != nil {
+		return 0, 0, err
+	}
+
+	today := time.Now().Truncate(24 * time.Hour)
+	if err := db.Model(&models.ClickLog{}).Where("created_at >= ?", today).Count(&todayMySQL).Error; err != nil {
+		return 0, 0, err
+	}
+
+	return totalMySQL, todayMySQL, nil
+}
+
 // GetBrowserData 返回原始 UserAgent → 计数的映射，供 logic 层做浏览器解析
 func GetBrowserData(shortCode string) (map[string]int64, error) {
 	rows, err := db.Model(&models.ClickLog{}).

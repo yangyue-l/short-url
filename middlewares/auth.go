@@ -30,6 +30,20 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		c.Set(controller.CtxUserIDKey, mc.UserID)
+		c.Set(controller.CtxRoleKey, mc.Role)
+		c.Next()
+	}
+}
+
+// AdminAuthMiddleware 管理员权限中间件（需要先经过 JWTAuthMiddleware）
+func AdminAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, err := controller.GetCurrentUserRole(c)
+		if err != nil || role != "admin" {
+			controller.ResponseError(c, controller.CodePermissionDenied)
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }

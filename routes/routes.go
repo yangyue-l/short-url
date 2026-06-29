@@ -49,6 +49,14 @@ func Setup(mode string) *gin.Engine {
 		v1.DELETE("/user/account", controller.DeleteUserHandler)
 	}
 
+	// 管理员接口
+	v1Admin := r.Group("/api/v1")
+	v1Admin.Use(middlewares.JWTAuthMiddleware(), middlewares.AdminAuthMiddleware())
+	{
+		v1Admin.GET("/urls", controller.GetAdminURLsHandler)
+		v1Admin.GET("/stats/overview", controller.GetStatsOverviewHandler)
+	}
+
 	v2 := r.Group("/api/v1")
 	{
 		v2.POST("/auth/register", controller.UserRegisterHandler)

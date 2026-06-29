@@ -99,3 +99,124 @@ func DeleteURLByShortCodeAndUser(shortCode string, userID int64) error {
 func DeleteURLsByUserID(userID int64) error {
 	return db.Where("user_id = ?", userID).Delete(&models.URL{}).Error
 }
+
+// GetShortCodesByUserID 获取用户所有短码列表（注销时清缓存用）
+func GetShortCodesByUserID(userID int64) ([]string, error) {
+	var codes []string
+	err := db.Model(&models.URL{}).Where("user_id = ?", userID).Pluck("short_code", &codes).Error
+	return codes, err
+}
+
+// ─── GORM Scopes ───
+
+// ScopePaginate 分页
+func ScopePaginate(page, pageSize int) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		offset := (page - 1) * pageSize
+		return db.Offset(offset).Limit(pageSize)
+	}
+}
+
+// ScopeKeywordSearch 关键词模糊搜索长链接
+func ScopeKeywordSearch(keyword string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		if keyword == "" {
+			return db
+		}
+		return db.Where("urls.long_url LIKE ?", "%"+keyword+"%")
+	}
+}
+
+// ScopeStatusFilter 状态筛选
+func ScopeStatusFilter(status string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		switch status {
+		case "active":
+			return db.Where("urls.expire_at IS NULL OR urls.expire_at > NOW()")
+		case "expired":
+			return db.Where("urls.expire_at IS NOT NULL AND urls.expire_at <= NOW()")
+		default:
+			return db
+		}
+	}
+}
+
+// ScopeSort 排序（白名单防注入）
+func ScopeSort(sort, order string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		allowedSorts := map[string]string{
+			"created_at": "urls.created_at",
+			"click_cnt":  "urls.click_cnt",
+		}
+		col, ok := allowedSorts[sort]
+		if !ok {
+			col = "urls.created_at"
+		}
+		if order == "asc" {
+			return db.Order(col + " ASC")
+		}
+		return db.Order(col + " DESC")
+	}
+}
+
+// ─── 管理员查询 ───
+
+// URLWithUser 关联查询结果
+type URLWithUser struct {
+	models.URL
+	Username string `json:"username"`
+}
+
+// GetAdminURLs 管理员分页查询全部短链接（关联用户名）
+func GetAdminURLs(page, pageSize int, keyword, status, sort, order string) ([]URLWithUser, int64, error) {
+	var total int64
+	var results []URLWithUser
+
+	base := db.Model(&models.URL{}).
+		Select("urls.*, users.username").
+		Joins("LEFT JOIN users ON urls.user_id = users.id").
+		Scopes(
+			ScopeKeywordSearch(keyword),
+			ScopeStatusFilter(status),
+		)
+
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := base.
+		Scopes(ScopeSort(sort, order), ScopePaginate(page, pageSize)).
+		Find(&results).Error
+
+	return results, total, err
+}
+
+// URLStats 全局 URL 统计
+type URLStats struct {
+	TotalURLs    int64
+	ActiveURLs   int64
+	ExpiredURLs  int64
+	TodayCreated int64
+}
+
+// GetURLStats 获取全局 URL 统计
+func GetURLStats() (*URLStats, error) {
+	s := &URLStats{}
+	today := time.Now().Truncate(24 * time.Hour)
+
+	if err := db.Model(&models.URL{}).Count(&s.TotalURLs).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Model(&models.URL{}).
+		Where("expire_at IS NULL OR expire_at > NOW()").Count(&s.ActiveURLs).Error; err != nil {
+		return nil, err
+	}
+	s.ExpiredURLs = s.TotalURLs - s.ActiveURLs
+
+	if err := db.Model(&models.URL{}).
+		Where("created_at >= ?", today).Count(&s.TodayCreated).Error; err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}

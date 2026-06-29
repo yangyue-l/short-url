@@ -3,9 +3,11 @@ package logic
 import (
 	"errors"
 	"short-url/dao/mysql"
+	"short-url/dao/redis"
 	"short-url/models"
 	"short-url/pkg/jwt"
 	"short-url/pkg/snowflake"
+	"short-url/settings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -15,6 +17,14 @@ import (
 var (
 	ErrUserLogin = errors.New("用户名或密码错误")
 )
+
+// userRole 根据用户名判断角色（配置文件中定义管理员列表）
+func userRole(username string) string {
+	if settings.Cfg.IsAdmin(username) {
+		return "admin"
+	}
+	return "user"
+}
 
 func UserRegister(p *models.ParamRegisterRequest) (*models.ParamRegisterResponse, error) {
 	userID := snowflake.GenID()
@@ -53,7 +63,8 @@ func UserLogin(p *models.ParamLoginRequest) (*models.ParamLoginResponse, error) 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(p.Password)); err != nil {
 		return nil, ErrUserLogin
 	}
-	aToken, rToken, err := jwt.GenToken(user.ID, user.Username)
+	role := userRole(user.Username)
+	aToken, rToken, err := jwt.GenToken(user.ID, user.Username, role)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +81,8 @@ func UserRefresh(tokenString string) (*models.ParamRefreshResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	aToken, rToken, err := jwt.GenToken(mc.UserID, mc.Username)
+	role := userRole(mc.Username)
+	aToken, rToken, err := jwt.GenToken(mc.UserID, mc.Username, role)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +94,13 @@ func UserRefresh(tokenString string) (*models.ParamRefreshResponse, error) {
 }
 
 func DeleteUser(userID int64) error {
-	return mysql.GetDB().Transaction(func(tx *gorm.DB) error {
+	// 查出用户所有短码，事务提交后清理 Redis 缓存
+	codes, err := mysql.GetShortCodesByUserID(userID)
+	if err != nil {
+		return err
+	}
+
+	if err := mysql.GetDB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&models.URL{}).Error; err != nil {
 			return err
 		}
@@ -90,5 +108,19 @@ func DeleteUser(userID int64) error {
 			return err
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	// 异步清理 Redis 缓存
+	if len(codes) > 0 {
+		client := redis.GetClient()
+		go func() {
+			for _, code := range codes {
+				redis.DeleteCacheByClient(client, code)
+			}
+		}()
+	}
+
+	return nil
 }

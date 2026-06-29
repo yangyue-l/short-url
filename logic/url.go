@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"short-url/dao/mysql"
@@ -8,6 +9,7 @@ import (
 	"short-url/models"
 	"short-url/pkg/base62"
 	"short-url/settings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -294,6 +296,114 @@ func GetUserURLs(userID int64, page, pageSize int) (*models.ParamUserURLsRespons
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+// GetAdminURLs 管理员分页查询全部短链接（合并 Redis 实时 PV）
+func GetAdminURLs(page, pageSize int, keyword, status, sort, order string) (*models.ParamAdminURLsResponse, error) {
+	urls, total, err := mysql.GetAdminURLs(page, pageSize, keyword, status, sort, order)
+	if err != nil {
+		return nil, err
+	}
+
+	baseURL := settings.Cfg.BaseURL()
+	client := redis.GetClient()
+	list := make([]*models.ParamAdminURLsList, 0, len(urls))
+
+	for _, u := range urls {
+		clickCnt := u.ClickCnt + redis.GetPV(client, u.ShortCode)
+
+		var userID int64
+		if u.UserID != nil {
+			userID = *u.UserID
+		}
+
+		item := &models.ParamAdminURLsList{
+			ShortCode: u.ShortCode,
+			ShortURL:  fmt.Sprintf("%s/%s", baseURL, u.ShortCode),
+			LongURL:   u.LongURL,
+			ClickCnt:  clickCnt,
+			IsExpired: u.ExpireAt != nil && u.ExpireAt.Before(time.Now()),
+			CreatedAt: u.CreatedAt.Format(time.RFC3339),
+			UserID:    userID,
+			Username:  u.Username,
+		}
+		list = append(list, item)
+	}
+
+	return &models.ParamAdminURLsResponse{
+		List:     list,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+// GetStatsOverview 获取全局统计概览（并行查询 + Redis 缓存 1 分钟）
+func GetStatsOverview() (*models.ParamStatsOverviewResponse, error) {
+	client := redis.GetClient()
+
+	// 检查缓存
+	const cacheKey = "stats:overview"
+	const cacheTTL = 1 * time.Minute
+	cached, err := client.Get(client.Context(), cacheKey).Result()
+	if err == nil && cached != "" {
+		var resp models.ParamStatsOverviewResponse
+		if err := json.Unmarshal([]byte(cached), &resp); err == nil {
+			return &resp, nil
+		}
+	}
+
+	// 并行查询 MySQL
+	var (
+		urlStats   *mysql.URLStats
+		totalMySQL int64
+		todayMySQL int64
+		urlErr     error
+		clickErr   error
+		wg         sync.WaitGroup
+	)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		urlStats, urlErr = mysql.GetURLStats()
+	}()
+	go func() {
+		defer wg.Done()
+		totalMySQL, todayMySQL, clickErr = mysql.GetGlobalClickStats()
+	}()
+	wg.Wait()
+
+	if urlErr != nil {
+		return nil, urlErr
+	}
+	if clickErr != nil {
+		return nil, clickErr
+	}
+
+	// 合并 Redis 未回刷数据
+	redisPV := redis.SumActivePV(client, time.Now().Unix()-60*60)
+	redisToday := redis.GetTodayClick(client)
+
+	totalClicks := totalMySQL + redisPV
+	todayClicks := todayMySQL + redisToday
+
+	resp := &models.ParamStatsOverviewResponse{
+		TotalURLs:    urlStats.TotalURLs,
+		TotalClicks:  totalClicks,
+		ActiveURLs:   urlStats.ActiveURLs,
+		ExpiredURLs:  urlStats.ExpiredURLs,
+		TodayCreated: urlStats.TodayCreated,
+		TodayClicks:  todayClicks,
+	}
+
+	// 写入缓存
+	go func() {
+		data, _ := json.Marshal(resp)
+		client.Set(client.Context(), cacheKey, data, cacheTTL)
+	}()
+
+	return resp, nil
 }
 
 // GetShortStats 获取短链接详情统计（合并 Redis 实时 + MySQL 历史数据）

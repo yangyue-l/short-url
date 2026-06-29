@@ -149,6 +149,7 @@ func flushBatch() {
 	redis.BatchIncrPV(redis.GetClient(), pvMap)
 	redis.BatchAddUV(redis.GetClient(), clicks)
 	redis.MarkActive(redis.GetClient(), pvMap)
+	redis.IncrTodayClick(redis.GetClient(), int64(len(clicks)))
 
 	go func() {
 		if err := mysql.BatchCreateClickLogs(clicks); err != nil {

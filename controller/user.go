@@ -13,7 +13,7 @@ import (
 func UserRegisterHandler(c *gin.Context) {
 	var p *models.ParamRegisterRequest
 	if err := c.ShouldBindJSON(&p); err != nil {
-		zap.L().Error("invalid params", zap.Error(err))
+		zap.L().Warn("invalid params", zap.Error(err))
 		ResponseError(c, CodeInvalidParam)
 		return
 	}
@@ -29,14 +29,14 @@ func UserRegisterHandler(c *gin.Context) {
 func UserLoginHandler(c *gin.Context) {
 	var p *models.ParamLoginRequest
 	if err := c.ShouldBindJSON(&p); err != nil {
-		zap.L().Error("invalid params", zap.Error(err))
+		zap.L().Warn("invalid params", zap.Error(err))
 		ResponseError(c, CodeInvalidParam)
 		return
 	}
 	resp, err := logic.UserLogin(p)
 	if err != nil {
 		if errors.Is(err, logic.ErrUserLogin) {
-			ResponseErrorWithMsg(c, CodeNeedLogin, logic.ErrUserLogin.Error())
+			ResponseErrorWithMsg(c, CodeInvalidParam, logic.ErrUserLogin.Error())
 		} else {
 			zap.L().Error("logic.UserLogin(p) failed", zap.Error(err))
 			ResponseError(c, CodeServerBusy)
@@ -77,5 +77,5 @@ func DeleteUserHandler(c *gin.Context) {
 		ResponseError(c, CodeServerBusy)
 		return
 	}
-	ResponseSuccess(c, CodeSuccess)
+	ResponseSuccess(c, nil)
 }

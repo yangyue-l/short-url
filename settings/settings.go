@@ -11,16 +11,38 @@ import (
 var Cfg *Config
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	MySQL    MySQLConfig    `yaml:"mysql"`
-	Redis    RedisConfig    `yaml:"redis"`
-	RabbitMQ RabbitMQConfig `yaml:"rabbitmq"`
-	Logger   LoggerConfig   `yaml:"logger"`
+	Server     ServerConfig    `yaml:"server"`
+	MySQL      MySQLConfig     `yaml:"mysql"`
+	Redis      RedisConfig     `yaml:"redis"`
+	RabbitMQ   RabbitMQConfig  `yaml:"rabbitmq"`
+	Logger     LoggerConfig    `yaml:"logger"`
+	AdminUsers []string        `yaml:"admin_users"`
+	Snowflake  SnowflakeConfig `yaml:"snowflake"`
+	JWT        JWTConfig       `yaml:"jwt"`
+}
+
+type SnowflakeConfig struct {
+	StartTime string `yaml:"start_time"`
+	MachineID int64  `yaml:"machine_id"`
+}
+
+type JWTConfig struct {
+	Secret string `yaml:"secret"`
 }
 
 // BaseURL 返回不带尾部斜杠的服务地址
 func (c *Config) BaseURL() string {
 	return fmt.Sprintf("http://localhost:%d", c.Server.Port)
+}
+
+// IsAdmin 判断指定用户名是否为管理员
+func (c *Config) IsAdmin(username string) bool {
+	for _, u := range c.AdminUsers {
+		if u == username {
+			return true
+		}
+	}
+	return false
 }
 
 type ServerConfig struct {

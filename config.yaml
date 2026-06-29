@@ -52,3 +52,16 @@ logger:
   max_size: 128
   max_backups: 30
   max_age: 7
+
+# 管理员用户名列表（拥有全局短链列表、统计概览等管理权限）
+admin_users:
+  - admin
+
+# 雪花 ID 生成器
+snowflake:
+  start_time: "2026-01-01"
+  machine_id: 1
+
+# JWT
+jwt:
+  secret: "yangyue"
