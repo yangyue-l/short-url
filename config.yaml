@@ -1,4 +1,4 @@
-server:
+﻿server:
   port: 8080
   mode: debug
 
@@ -17,6 +17,34 @@ redis:
   password: 123456
   db: 0
   pool_size: 10
+
+rabbitmq:
+  # 连接
+  host: 127.0.0.1
+  port: 5672
+  user: admin
+  password: 123456
+  vhost: /
+
+  # 点击事件队列
+  click:
+    exchange: shorturl.click.events
+    exchange_type: direct
+    queue: shorturl.click.queue
+    routing_key: click.event
+    durable: true
+    auto_delete: false
+
+  # 消费者
+  consumer:
+    prefetch_count: 100
+    auto_ack: false
+    workers: 3
+
+  # 重连
+  reconnect:
+    interval: 5
+    max_retry: 10
 
 logger:
   level: info

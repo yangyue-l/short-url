@@ -18,12 +18,10 @@ var (
 	ErrRequestAlreadyProcessed = errors.New("request already processed")
 )
 
-// createURL 创建一条 URL 记录。自定义短码直接插入，自动短码先插入再回写编码后的自增 ID
 func createURL(url *models.URL) error {
 	if err := mysql.CreateURL(url); err != nil {
 		return err
 	}
-	// 自动短码：用 MySQL 自增 ID 做 Base62 编码，保证唯一且不依赖任何外部组件
 	if url.ShortCode == "" {
 		shortCode := base62.Encode(url.ID)
 		if err := mysql.UpdateShortCode(url.ID, shortCode); err != nil {
@@ -34,7 +32,6 @@ func createURL(url *models.URL) error {
 	return nil
 }
 
-// cacheURL 异步将短链接写入 Redis 缓存（丢失败不阻塞主流程）
 func cacheURL(shortCode, longURL string, ttl time.Duration) {
 	go func() {
 		defer func() {
@@ -49,7 +46,6 @@ func cacheURL(shortCode, longURL string, ttl time.Duration) {
 	}()
 }
 
-// CreateShortURL 创建短链接
 func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*models.ParamShortenResponse, error) {
 	url := &models.URL{
 		LongURL:   longURL,
@@ -69,7 +65,6 @@ func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*
 		return nil, errors.New("create url failed")
 	}
 
-	// 异步缓存
 	ttl := redis.URLCacheTTL
 	if expireIn > 0 && time.Duration(expireIn)*time.Second < ttl {
 		ttl = time.Duration(expireIn) * time.Second
@@ -90,32 +85,25 @@ func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*
 	return resp, nil
 }
 
-// GetLongURL 通过短码获取原始链接
 func GetLongURL(shortCode string) (string, error) {
-	// 先查 Redis 缓存
 	longURL, err := redis.GetCachedURL(shortCode)
 	if err == nil {
-		recordClick(shortCode)
 		return longURL, nil
 	}
 
-	// 缓存未命中，查 MySQL
 	url, err := mysql.GetURLByShortCode(shortCode)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-
 			return "", errors.New("short code not found")
 		}
 		zap.L().Error("get url by short code failed", zap.Error(err))
 		return "", errors.New("query failed")
 	}
 
-	// 检查是否过期
 	if url.ExpireAt != nil && url.ExpireAt.Before(time.Now()) {
 		return "", errors.New("short code has expired")
 	}
 
-	// 回写 Redis 缓存
 	ttl := redis.URLCacheTTL
 	if url.ExpireAt != nil {
 		if remaining := time.Until(*url.ExpireAt); remaining < ttl {
@@ -124,13 +112,9 @@ func GetLongURL(shortCode string) (string, error) {
 	}
 	cacheURL(shortCode, url.LongURL, ttl)
 
-	// 异步记录点击
-	recordClick(shortCode)
-
 	return url.LongURL, nil
 }
 
-// GetShortenInfo 查询短链接信息
 func GetShortenInfo(shortCode string) (*models.ParamURLInfoResponse, error) {
 	url, err := mysql.GetURLByShortCode(shortCode)
 	if err != nil {
@@ -146,10 +130,12 @@ func GetShortenInfo(shortCode string) (*models.ParamURLInfoResponse, error) {
 		isExpired = true
 	}
 
+	clickCnt := url.ClickCnt + redis.GetPV(redis.GetClient(), shortCode)
+
 	info := &models.ParamURLInfoResponse{
 		ShortCode: url.ShortCode,
 		LongURL:   url.LongURL,
-		ClickCnt:  url.ClickCnt,
+		ClickCnt:  clickCnt,
 		IsExpired: isExpired,
 		CreatedAt: url.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: url.UpdatedAt.Format(time.RFC3339),
@@ -160,9 +146,7 @@ func GetShortenInfo(shortCode string) (*models.ParamURLInfoResponse, error) {
 	return info, nil
 }
 
-// CreateBatchShortURL 批量创建短链接
 func CreateBatchShortURL(userID int64, p *models.ParamBatchURLRequest) (*models.ParamBatchURLResponse, error) {
-	// 幂等性校验：使用 Redis SETNX 原子操作，避免 TOCTOU 竞态
 	if p.RequestID != "" {
 		ok, err := redis.SetRequestIDNX(p.RequestID)
 		if err != nil {
@@ -214,7 +198,6 @@ func CreateBatchShortURL(userID int64, p *models.ParamBatchURLRequest) (*models.
 			continue
 		}
 
-		// 异步缓存
 		ttl := redis.URLCacheTTL
 		if item.ExpireIn > 0 && time.Duration(item.ExpireIn)*time.Second < ttl {
 			ttl = time.Duration(item.ExpireIn) * time.Second
@@ -231,7 +214,6 @@ func CreateBatchShortURL(userID int64, p *models.ParamBatchURLRequest) (*models.
 	return resp, nil
 }
 
-// UpdateLongURL 更新短链接的目标地址（需要所有权校验）
 func UpdateLongURL(userID int64, shortCode string, p *models.ParamUpdateRequest) (*models.ParamUpdateResponse, error) {
 	url, err := mysql.GetURLByShortCodeAndUser(shortCode, userID)
 	if err != nil {
@@ -252,7 +234,6 @@ func UpdateLongURL(userID int64, shortCode string, p *models.ParamUpdateRequest)
 		return nil, errors.New("update failed")
 	}
 
-	// 清除旧缓存，下次重定向走 MySQL 拿新地址
 	_ = redis.DeleteCache(shortCode)
 
 	resp := &models.ParamUpdateResponse{
@@ -288,12 +269,16 @@ func GetUserURLs(userID int64, page, pageSize int) (*models.ParamUserURLsRespons
 
 	baseURL := settings.Cfg.BaseURL()
 	list := make([]*models.ParamUserURLsList, 0, len(urls))
+	client := redis.GetClient()
+
 	for _, url := range urls {
+		clickCnt := url.ClickCnt + redis.GetPV(client, url.ShortCode)
+
 		item := &models.ParamUserURLsList{
 			ShortCode: url.ShortCode,
 			ShortURL:  fmt.Sprintf("%s/%s", baseURL, url.ShortCode),
 			LongURL:   url.LongURL,
-			ClickCnt:  url.ClickCnt,
+			ClickCnt:  clickCnt,
 			IsExpired: url.ExpireAt != nil && url.ExpireAt.Before(time.Now()),
 			CreatedAt: url.CreatedAt.Format(time.RFC3339),
 		}
@@ -308,5 +293,46 @@ func GetUserURLs(userID int64, page, pageSize int) (*models.ParamUserURLsRespons
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
+	}, nil
+}
+
+// GetShortStats 获取短链接详情统计（合并 Redis 实时 + MySQL 历史数据）
+func GetShortStats(userID int64, shortCode string) (*models.ParamShortStatsResponse, error) {
+	url, err := mysql.GetURLByShortCodeAndUser(shortCode, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("短链接不存在或无权操作")
+		}
+		return nil, err
+	}
+
+	stats, err := mysql.GetClickStats(shortCode)
+	if err != nil {
+		return nil, err
+	}
+
+	client := redis.GetClient()
+
+	// 合并 Redis 实时 PV
+	redisPV := redis.GetPV(client, shortCode)
+	totalClicks := url.ClickCnt + redisPV
+
+	// 合并 Redis 实时 UV（HyperLogLog）
+	redisUV := redis.GetUV(client, shortCode)
+	uniqueIPs := stats.UniqueIPs + redisUV
+	todayClicks := stats.TodayClicks + redisPV
+
+	// 浏览器解析——从 DAO 拿原始数据，在 logic 层做归类
+	rawBrowsers, _ := mysql.GetBrowserData(shortCode)
+	topBrowsers := mergeBrowsers(rawBrowsers, 5)
+
+	return &models.ParamShortStatsResponse{
+		ShortCode:   shortCode,
+		TotalClicks: totalClicks,
+		UniqueIPs:   uniqueIPs,
+		TodayClicks: todayClicks,
+		ClicksByDay: stats.ClicksByDay,
+		TopReferers: stats.TopReferers,
+		TopBrowsers: topBrowsers,
 	}, nil
 }

@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"short-url/cron"
 	"short-url/dao/mysql"
 	"short-url/dao/redis"
 	"short-url/logger"
-	"short-url/logic"
+	"short-url/mq"
 	"short-url/routes"
 	"short-url/settings"
 	"syscall"
@@ -45,13 +46,24 @@ func main() {
 	}
 	defer redis.Close()
 
-	// 4.1 启动点击计数 worker
-	logic.InitClickWorkers(3)
+	// 5. 初始化 RabbitMQ 连接池
+	if err := mq.Init(&cfg.RabbitMQ); err != nil {
+		zap.L().Fatal("init RabbitMQ failed", zap.Error(err))
+	}
+	defer mq.Close()
 
-	// 5. 注册路由
+	// 6. 启动 MQ 消费者（批量聚合 + 写 Redis）
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mq.StartConsumers(ctx, cfg.RabbitMQ.Consumer.Workers)
+
+	// 7. 启动定时回刷任务（Redis → MySQL）
+	cron.StartFlushJob(ctx)
+
+	// 8. 注册路由
 	r := routes.Setup(cfg.Server.Mode)
 
-	// 6. 启动服务（支持优雅关闭）
+	// 9. 启动服务（支持优雅关闭）
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: r,
@@ -70,10 +82,16 @@ func main() {
 	<-quit
 	zap.L().Info("shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	// 先停 HTTP
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		zap.L().Fatal("server shutdown failed", zap.Error(err))
 	}
+
+	// 停止消费者 + 回刷
+	cancel()
+	mq.StopConsumers()
+
 	log.Println("server exited")
 }

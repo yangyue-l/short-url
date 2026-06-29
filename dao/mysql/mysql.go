@@ -26,7 +26,7 @@ func Init(cfg *settings.MySQLConfig) error {
 	}
 
 	// 自动迁移
-	if err := db.AutoMigrate(&models.URL{}, &models.User{}); err != nil {
+	if err := db.AutoMigrate(&models.URL{}, &models.User{}, &models.ClickLog{}); err != nil {
 		return fmt.Errorf("auto migrate failed: %w", err)
 	}
 

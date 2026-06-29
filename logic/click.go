@@ -1,38 +1,54 @@
 package logic
 
 import (
-	"short-url/dao/mysql"
+	"sort"
+	"strings"
 
-	"go.uber.org/zap"
+	"short-url/models"
+	"short-url/mq"
 )
 
-const clickQueueSize = 1000
+// RecordClick 异步记录一次点击（通过 RabbitMQ 投递）
+func RecordClick(shortCode, ip, referer, userAgent string) {
+	mq.RecordClick(shortCode, ip, referer, userAgent)
+}
 
-var clickQueue = make(chan string, clickQueueSize)
-
-// InitClickWorkers 启动点击计数后台 worker（建议 workerNum=2~4）
-func InitClickWorkers(workerNum int) {
-	for i := 0; i < workerNum; i++ {
-		go func() {
-			for shortCode := range clickQueue {
-				if err := mysql.IncrementClickCnt(shortCode); err != nil {
-					zap.L().Warn("increment click count failed",
-						zap.String("shortCode", shortCode), zap.Error(err))
-				}
-			}
-		}()
+// extractBrowser 从 User-Agent 中提取浏览器名称
+func extractBrowser(ua string) string {
+	switch {
+	case strings.Contains(ua, "Edg/"):
+		return "Edge"
+	case strings.Contains(ua, "Chrome/"):
+		return "Chrome"
+	case strings.Contains(ua, "Firefox/"):
+		return "Firefox"
+	case strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/"):
+		return "Safari"
+	default:
+		return "Other"
 	}
 }
 
-// recordClick 异步记录一次点击；队列满时同步执行保数据不丢
-func recordClick(shortCode string) {
-	select {
-	case clickQueue <- shortCode:
-	default:
-		// 队列满则同步执行，不丢数据
-		if err := mysql.IncrementClickCnt(shortCode); err != nil {
-			zap.L().Warn("increment click count failed",
-				zap.String("shortCode", shortCode), zap.Error(err))
-		}
+// mergeBrowsers 将原始 UA 计数合并为浏览器分类并返回 TopN
+func mergeBrowsers(raw map[string]int64, n int) []models.TopSource {
+	browserCount := make(map[string]int64)
+	for ua, count := range raw {
+		browserCount[extractBrowser(ua)] += count
 	}
+
+	type kv struct {
+		k string
+		v int64
+	}
+	list := make([]kv, 0, len(browserCount))
+	for k, v := range browserCount {
+		list = append(list, kv{k, v})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
+
+	result := make([]models.TopSource, 0, n)
+	for i := 0; i < n && i < len(list); i++ {
+		result = append(result, models.TopSource{Source: list[i].k, Count: list[i].v})
+	}
+	return result
 }

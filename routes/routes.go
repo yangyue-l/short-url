@@ -42,6 +42,8 @@ func Setup(mode string) *gin.Engine {
 		v1.DELETE("/:shortCode", controller.DeleteShortenHandler)
 		// 获取用户短链接
 		v1.GET("/user/urls", controller.GetURLsHandler)
+		// 用户短链接访问统计
+		v1.GET("/:shortCode/stats", controller.GetShortStatsHandler)
 
 		// 注销账户
 		v1.DELETE("/user/account", controller.DeleteUserHandler)

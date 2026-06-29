@@ -7,14 +7,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Cfg 全局配置，Init 后可用
+// Cfg 全局配置，Init 后可读取
 var Cfg *Config
 
 type Config struct {
-	Server ServerConfig `yaml:"server"`
-	MySQL  MySQLConfig  `yaml:"mysql"`
-	Redis  RedisConfig  `yaml:"redis"`
-	Logger LoggerConfig `yaml:"logger"`
+	Server   ServerConfig   `yaml:"server"`
+	MySQL    MySQLConfig    `yaml:"mysql"`
+	Redis    RedisConfig    `yaml:"redis"`
+	RabbitMQ RabbitMQConfig `yaml:"rabbitmq"`
+	Logger   LoggerConfig   `yaml:"logger"`
 }
 
 // BaseURL 返回不带尾部斜杠的服务地址
@@ -43,6 +44,44 @@ type RedisConfig struct {
 	Password string `yaml:"password"`
 	DB       int    `yaml:"db"`
 	PoolSize int    `yaml:"pool_size"`
+}
+
+// ─── RabbitMQ 配置 ───
+
+type RabbitMQConfig struct {
+	Host      string           `yaml:"host"`
+	Port      int              `yaml:"port"`
+	User      string           `yaml:"user"`
+	Password  string           `yaml:"password"`
+	Vhost     string           `yaml:"vhost"`
+	Click     ClickQueueConfig `yaml:"click"`
+	Consumer  ConsumerConfig   `yaml:"consumer"`
+	Reconnect ReconnectConfig  `yaml:"reconnect"`
+}
+
+// Addr 返回 RabbitMQ 连接地址
+func (c *RabbitMQConfig) Addr() string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%d%s", c.User, c.Password, c.Host, c.Port, c.Vhost)
+}
+
+type ClickQueueConfig struct {
+	Exchange     string `yaml:"exchange"`
+	ExchangeType string `yaml:"exchange_type"`
+	Queue        string `yaml:"queue"`
+	RoutingKey   string `yaml:"routing_key"`
+	Durable      bool   `yaml:"durable"`
+	AutoDelete   bool   `yaml:"auto_delete"`
+}
+
+type ConsumerConfig struct {
+	PrefetchCount int  `yaml:"prefetch_count"`
+	AutoAck       bool `yaml:"auto_ack"`
+	Workers       int  `yaml:"workers"`
+}
+
+type ReconnectConfig struct {
+	Interval int `yaml:"interval"`
+	MaxRetry int `yaml:"max_retry"`
 }
 
 type LoggerConfig struct {

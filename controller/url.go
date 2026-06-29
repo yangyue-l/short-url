@@ -35,7 +35,7 @@ func ShortenHandler(c *gin.Context) {
 	ResponseSuccess(c, resp)
 }
 
-// RedirectHandler 重定向到原始链接
+// RedirectHandler 重定向到原始链接（点击事件通过 RabbitMQ 异步记录）
 func RedirectHandler(c *gin.Context) {
 	shortCode := c.Param("shortCode")
 	if shortCode == "" {
@@ -49,6 +49,9 @@ func RedirectHandler(c *gin.Context) {
 		ResponseError(c, CodeNotFound)
 		return
 	}
+
+	// 异步记录点击（通过 RabbitMQ 投递，不阻塞跳转）
+	logic.RecordClick(shortCode, c.ClientIP(), c.Request.Referer(), c.Request.UserAgent())
 
 	c.Redirect(http.StatusMovedPermanently, longURL)
 }
@@ -127,6 +130,7 @@ func UpdateLongURLHandler(c *gin.Context) {
 	ResponseSuccess(c, resp)
 }
 
+// DeleteShortenHandler 删除创建的短链接
 func DeleteShortenHandler(c *gin.Context) {
 	userID, err := GetCurrentUser(c)
 	if err != nil {
@@ -142,6 +146,7 @@ func DeleteShortenHandler(c *gin.Context) {
 	ResponseSuccess(c, nil)
 }
 
+// GetURLsHandler 获取用户创建的短链接信息
 func GetURLsHandler(c *gin.Context) {
 	userID, err := GetCurrentUser(c)
 	if err != nil {
@@ -152,6 +157,22 @@ func GetURLsHandler(c *gin.Context) {
 	resp, err := logic.GetUserURLs(userID, int(page), int(pageSize))
 	if err != nil {
 		zap.L().Error("logic.GetUserURLs failed", zap.Error(err))
+		ResponseError(c, CodeServerBusy)
+		return
+	}
+	ResponseSuccess(c, resp)
+}
+
+func GetShortStatsHandler(c *gin.Context) {
+	userID, err := GetCurrentUser(c)
+	if err != nil {
+		ResponseError(c, CodeNeedLogin)
+		return
+	}
+	shortCode := c.Param("shortCode")
+	resp, err := logic.GetShortStats(userID, shortCode)
+	if err != nil {
+		zap.L().Error("logic.GetShortStats failed", zap.Error(err))
 		ResponseError(c, CodeServerBusy)
 		return
 	}

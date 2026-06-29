@@ -1,5 +1,7 @@
 package models
 
+// ─── 短链接请求/响应 ───
+
 // ParamShortenRequest 创建短链接请求
 type ParamShortenRequest struct {
 	LongURL    string `json:"long_url" binding:"required,url"`
@@ -26,6 +28,8 @@ type ParamURLInfoResponse struct {
 	ExpireAt  string `json:"expire_at,omitempty"`
 	UpdatedAt string `json:"updated_at"`
 }
+
+// ─── 批量创建 ───
 
 // ParamBatchURLRequest 批量创建短链接接收参数
 type ParamBatchURLRequest struct {
@@ -55,6 +59,8 @@ type ParamURLsResponse struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// ─── 更新 ───
+
 // ParamUpdateRequest 更新短链接请求体
 type ParamUpdateRequest struct {
 	LongURL  string `json:"long_url" binding:"required,url"`
@@ -67,6 +73,8 @@ type ParamUpdateResponse struct {
 	ExpireAt  string `json:"expire_at,omitempty"`
 	UpdatedAt string `json:"updated_at"`
 }
+
+// ─── 用户短链接列表 ───
 
 type ParamUserURLsResponse struct {
 	List     []*ParamUserURLsList `json:"list"`
@@ -85,7 +93,19 @@ type ParamUserURLsList struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// ---------- 用户相关参数 ----------
+// ─── 统计响应（引用 click_log.go 中的 ClicksByDay / TopSource）───
+
+type ParamShortStatsResponse struct {
+	ShortCode   string        `json:"short_code"`
+	TotalClicks int64         `json:"total_clicks"`
+	UniqueIPs   int64         `json:"unique_ips"`
+	TodayClicks int64         `json:"today_clicks"`
+	ClicksByDay []ClicksByDay `json:"clicks_by_day"`
+	TopReferers []TopSource   `json:"top_referers"`
+	TopBrowsers []TopSource   `json:"top_browsers"`
+}
+
+// ─── 用户相关参数 ───
 
 // ParamRegisterRequest 用户注册请求
 type ParamRegisterRequest struct {
