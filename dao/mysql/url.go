@@ -21,11 +21,6 @@ func GetURLByShortCode(shortCode string) (*models.URL, error) {
 	return &url, nil
 }
 
-func UpdateShortCode(id uint64, shortCode string) error {
-	return db.Model(&models.URL{}).Where("id = ?", id).
-		Update("short_code", shortCode).Error
-}
-
 func IncrementClickCnt(shortCode string) error {
 	return db.Model(&models.URL{}).
 		Where("short_code = ?", shortCode).

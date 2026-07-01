@@ -8,6 +8,7 @@ import (
 	"short-url/dao/redis"
 	"short-url/models"
 	"short-url/pkg/base62"
+	"short-url/pkg/snowflake"
 	"short-url/settings"
 	"sync"
 	"time"
@@ -21,17 +22,15 @@ var (
 )
 
 func createURL(url *models.URL) error {
-	if err := mysql.CreateURL(url); err != nil {
-		return err
-	}
+	// 预生成 Snowflake ID（替代 MySQL 自增，避免 INSERT → UPDATE 两阶段问题）
+	url.ID = uint64(snowflake.GenID())
+
+	// 无自定义码 → 截断低 40 位后 Base62 编码（最长 7 字符）
 	if url.ShortCode == "" {
-		shortCode := base62.Encode(url.ID)
-		if err := mysql.UpdateShortCode(url.ID, shortCode); err != nil {
-			return err
-		}
-		url.ShortCode = shortCode
+		url.ShortCode = base62.Encode(url.ID & 0xFFFFFFFFFF)
 	}
-	return nil
+
+	return mysql.CreateURL(url)
 }
 
 func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*models.ParamShortenResponse, error) {
