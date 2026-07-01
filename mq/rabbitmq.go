@@ -13,13 +13,16 @@ import (
 
 // ConnPool RabbitMQ 连接池，维护一组 Channel，支持自动重连
 type ConnPool struct {
-	cfg      *settings.RabbitMQConfig
-	mu       sync.Mutex
-	conn     *amqp.Connection
-	channels []*amqp.Channel
-	closed   chan struct{}
-	done     chan struct{}
-	failCnt  int // 连续重连失败计数
+	cfg       *settings.RabbitMQConfig
+	mu        sync.Mutex
+	conn      *amqp.Connection
+	channels  []*amqp.Channel // 消费者 channel（轮询分配）
+	prodCh    *amqp.Channel   // 生产者专用 channel
+	confirmCh chan amqp.Confirmation
+	pubMu     sync.Mutex // ★ 保护 Publish 整个操作（AMQP Channel 不能并发写）
+	closed    chan struct{}
+	done      chan struct{}
+	failCnt   int // 连续重连失败计数
 }
 
 // NewConnPool 创建 RabbitMQ 连接池
@@ -38,67 +41,76 @@ func NewConnPool(cfg *settings.RabbitMQConfig) (*ConnPool, error) {
 	return pool, nil
 }
 
-// connect 建立连接 + 申明交换机/队列 + 创建 Channel 池
+// connect 建立连接 + 申明交换机/队列(含 DLX) + 创建 Channel 池
 func (p *ConnPool) connect() error {
 	conn, err := amqp.Dial(p.cfg.Addr())
 	if err != nil {
 		return fmt.Errorf("dial RabbitMQ failed: %w", err)
 	}
 
-	size := p.cfg.Consumer.Workers + 1 // 消费者 worker 数 + 1 个给生产者
-	channels := make([]*amqp.Channel, 0, size)
-	for i := 0; i < size; i++ {
+	// 初始化 —— 先声明拓扑（用临时 channel）
+	setupCh, err := conn.Channel()
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("create setup channel failed: %w", err)
+	}
+	dlxName := p.cfg.Click.Exchange + ".dlx"
+	dlqName := p.cfg.Click.Queue + ".dlq"
+	// 死信交换机
+	setupCh.ExchangeDeclare(dlxName, "direct", true, false, false, false, nil)
+	// 死信队列
+	setupCh.QueueDeclare(dlqName, true, false, false, false,
+		amqp.Table{"x-message-ttl": int32(7 * 24 * 3600 * 1000)})
+	setupCh.QueueBind(dlqName, "#", dlxName, false, nil)
+	// 业务交换机
+	setupCh.ExchangeDeclare(p.cfg.Click.Exchange, p.cfg.Click.ExchangeType,
+		p.cfg.Click.Durable, p.cfg.Click.AutoDelete, false, false, nil)
+	// 业务队列（绑定 DLX）
+	setupCh.QueueDeclare(p.cfg.Click.Queue, p.cfg.Click.Durable, p.cfg.Click.AutoDelete,
+		false, false, amqp.Table{
+			"x-dead-letter-exchange":    dlxName,
+			"x-dead-letter-routing-key": "#",
+			"x-message-ttl":             int32(24 * 3600 * 1000),
+		})
+	setupCh.QueueBind(p.cfg.Click.Queue, p.cfg.Click.RoutingKey, p.cfg.Click.Exchange, false, nil)
+	setupCh.Close()
+
+	// ── 生产者专用 Channel（独立，Confirm 只注册一次）──
+	prodCh, err := conn.Channel()
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("create producer channel failed: %w", err)
+	}
+	if err := prodCh.Confirm(false); err != nil {
+		conn.Close()
+		return fmt.Errorf("enable producer confirm failed: %w", err)
+	}
+	// ★ 只注册一次 NotifyPublish，存到 pool.confirmCh 供所有 Publish 调用复用
+	confirmCh := prodCh.NotifyPublish(make(chan amqp.Confirmation, 10))
+
+	// ── 消费者 Channel ──
+	channels := make([]*amqp.Channel, 0, p.cfg.Consumer.Workers)
+	for i := 0; i < p.cfg.Consumer.Workers; i++ {
 		ch, err := conn.Channel()
 		if err != nil {
+			prodCh.Close()
 			conn.Close()
-			return fmt.Errorf("create channel #%d failed: %w", i, err)
-		}
-		// 申明交换机
-		if err := ch.ExchangeDeclare(
-			p.cfg.Click.Exchange,
-			p.cfg.Click.ExchangeType,
-			p.cfg.Click.Durable,
-			p.cfg.Click.AutoDelete,
-			false,
-			false,
-			nil,
-		); err != nil {
-			conn.Close()
-			return fmt.Errorf("declare exchange failed: %w", err)
-		}
-		// 申明队列
-		if _, err := ch.QueueDeclare(
-			p.cfg.Click.Queue,
-			p.cfg.Click.Durable,
-			p.cfg.Click.AutoDelete,
-			false,
-			false,
-			nil,
-		); err != nil {
-			conn.Close()
-			return fmt.Errorf("declare queue failed: %w", err)
-		}
-		// 绑定队列到交换机
-		if err := ch.QueueBind(
-			p.cfg.Click.Queue,
-			p.cfg.Click.RoutingKey,
-			p.cfg.Click.Exchange,
-			false,
-			nil,
-		); err != nil {
-			conn.Close()
-			return fmt.Errorf("bind queue failed: %w", err)
+			return fmt.Errorf("create consumer channel #%d failed: %w", i, err)
 		}
 		channels = append(channels, ch)
 	}
 
 	p.mu.Lock()
 	p.conn = conn
+	p.prodCh = prodCh
+	p.confirmCh = confirmCh
 	p.channels = channels
 	p.failCnt = 0
 	p.mu.Unlock()
 
-	zap.L().Info("RabbitMQ connected", zap.Int("channels", size))
+	zap.L().Info("RabbitMQ connected",
+		zap.Int("consumers", len(channels)),
+		zap.Int("producers", 1))
 	return nil
 }
 
@@ -153,33 +165,49 @@ func (p *ConnPool) GetChannel() (*amqp.Channel, error) {
 	return ch, nil
 }
 
-// Publish 生产者专用投递方法，失败自动重试一次
+// Publish 生产者专用投递（pubMu 串行化，AMQP Channel 不能并发写）
 func (p *ConnPool) Publish(body []byte) error {
-	ch, err := p.GetChannel()
-	if err != nil {
-		return fmt.Errorf("get channel failed: %w", err)
+	p.pubMu.Lock()
+	defer p.pubMu.Unlock()
+
+	p.mu.Lock()
+	ch := p.prodCh
+	confirmCh := p.confirmCh
+	p.mu.Unlock()
+
+	if ch == nil {
+		return fmt.Errorf("producer channel not available")
 	}
 
-	err = ch.Publish(p.cfg.Click.Exchange, p.cfg.Click.RoutingKey, false, false, amqp.Publishing{
+	seq := ch.GetNextPublishSeqNo()
+	err := ch.Publish(p.cfg.Click.Exchange, p.cfg.Click.RoutingKey, false, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Body:         body,
 		Timestamp:    time.Now(),
 	})
 	if err != nil {
-		zap.L().Warn("publish failed, retrying...", zap.Error(err))
-		ch2, err2 := p.GetChannel()
-		if err2 != nil {
-			return fmt.Errorf("get channel for retry failed: %w", err2)
-		}
-		return ch2.Publish(p.cfg.Click.Exchange, p.cfg.Click.RoutingKey, false, false, amqp.Publishing{
-			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent,
-			Body:         body,
-			Timestamp:    time.Now(),
-		})
+		return fmt.Errorf("publish failed: %w", err)
 	}
-	return nil
+
+	// 等待 DeliveryTag >= seq 的确认（共享 confirmCh，按 seq 顺序投递）
+	for {
+		select {
+		case confirm, ok := <-confirmCh:
+			if !ok {
+				return fmt.Errorf("confirm channel closed")
+			}
+			if confirm.DeliveryTag >= seq {
+				if !confirm.Ack {
+					return fmt.Errorf("publish nack")
+				}
+				return nil
+			}
+			// DeliveryTag < seq 的是其他 goroutine 的，跳过继续等
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("publish confirm timeout")
+		}
+	}
 }
 
 // Consume 返回一个消费者的消息通道
@@ -206,6 +234,9 @@ func (p *ConnPool) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if p.prodCh != nil {
+		p.prodCh.Close()
+	}
 	for _, ch := range p.channels {
 		ch.Close()
 	}

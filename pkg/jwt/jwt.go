@@ -13,12 +13,12 @@ const (
 	RefreshTokenExpireDuration = time.Hour * 24 * 7
 )
 
-// getSecret 从全局配置读取 JWT 签名密钥
+// getSecret 从全局配置读取 JWT 签名密钥，配置未加载或密钥为空则 panic
 func getSecret() []byte {
-	if settings.Cfg != nil && settings.Cfg.JWT.Secret != "" {
-		return []byte(settings.Cfg.JWT.Secret)
+	if settings.Cfg == nil || settings.Cfg.JWT.Secret == "" {
+		panic("JWT secret not configured: please set jwt.secret in config.yaml")
 	}
-	return []byte("yangyue")
+	return []byte(settings.Cfg.JWT.Secret)
 }
 
 type MyClaims struct {

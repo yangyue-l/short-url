@@ -73,41 +73,51 @@ func flushOnce() {
 func flushBatch(codes []string) {
 	client := redis.GetClient()
 
+	// 第一步：读取 Redis PV 增量（不重置，防数据丢失）
 	pvMap := make(map[string]int64)
-	var toClean []string
-
 	for _, code := range codes {
-		delta := redis.FlushPV(client, code)
+		delta := redis.GetPV(client, code)
 		if delta > 0 {
 			pvMap[code] = delta
-			toClean = append(toClean, code)
-		} else {
-			toClean = append(toClean, code)
 		}
 	}
 
+	// 第二步：先写 MySQL，成功后再重置 Redis
 	if len(pvMap) > 0 {
 		if err := mysql.IncrementClickCntBatch(pvMap); err != nil {
-			zap.L().Error("increment click cnt batch failed", zap.Error(err))
+			zap.L().Error("increment click cnt batch failed, retry next flush", zap.Error(err))
+			return // MySQL 失败保留 Redis 数据，下次重试
 		}
 	}
 
-	if len(toClean) > 0 {
-		redis.CleanActive(client, toClean...)
+	// 第三步：MySQL 成功后重置 Redis PV 计数
+	for code := range pvMap {
+		redis.ResetPV(client, code)
+	}
+	redis.CleanActive(client, codes...)
+
+	if len(pvMap) > 0 {
+		zap.L().Info("flush batch completed",
+			zap.Int("codes", len(codes)),
+			zap.Int("updated", len(pvMap)))
 	}
 }
 
-// FlushPV 显式回刷单个短链（供 API 调用）
+// FlushPV 显式回刷单个短链（供 API 调用，先写 MySQL 再重置 Redis）
 func FlushPV(shortCode string) int64 {
 	client := redis.GetClient()
 	if client == nil {
 		return 0
 	}
 
-	delta := redis.FlushPV(client, shortCode)
+	delta := redis.GetPV(client, shortCode)
 	if delta > 0 {
-		mysql.IncrementClickCntBatch(map[string]int64{shortCode: delta})
-		redis.CleanActive(client, shortCode)
+		if err := mysql.IncrementClickCntBatch(map[string]int64{shortCode: delta}); err != nil {
+			zap.L().Error("flush single pv failed", zap.String("shortCode", shortCode), zap.Error(err))
+			return delta // Redis 保留，下次重试
+		}
+		redis.ResetPV(client, shortCode)
 	}
+	redis.CleanActive(client, shortCode)
 	return delta
 }

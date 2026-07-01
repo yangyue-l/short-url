@@ -1,8 +1,13 @@
 package routes
 
 import (
+	"context"
+	"net/http"
 	"short-url/controller"
+	"short-url/dao/mysql"
+	"short-url/dao/redis"
 	"short-url/middlewares"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,51 +22,83 @@ func Setup(mode string) *gin.Engine {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
-	// 公开：无需登录
+	// ─── 限流策略（双层） ───
+	//  ① IP 层（JWT 之前）：防 DDoS / 撞库，阈值宽松
+	//  ② UserID 层（JWT 之后）：防单用户滥用，每个用户独立配额
+	//
+	//  跳转：RedirectRateLimit  (IP, 3000/min) — 仅防脚本刷量
+	//  登录：LoginRateLimit     (IP, 5/min)    — 防撞库
+	//  API： APIRateLimit       (IP, 300/min)  — 粗粒度防 DDoS
+	//        UserRateLimit      (UserID, 200/min) — 细粒度按用户
+
+	// 健康检查
+	r.GET("/health", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		checks := map[string]string{}
+		if err := mysql.GetDB().WithContext(ctx).Raw("SELECT 1").Error; err != nil {
+			checks["mysql"] = "unhealthy: " + err.Error()
+		} else {
+			checks["mysql"] = "healthy"
+		}
+		if err := redis.GetClient().Ping(ctx).Err(); err != nil {
+			checks["redis"] = "unhealthy: " + err.Error()
+		} else {
+			checks["redis"] = "healthy"
+		}
+
+		httpStatus := http.StatusOK
+		for _, v := range checks {
+			if v != "healthy" {
+				httpStatus = http.StatusServiceUnavailable
+				break
+			}
+		}
+		c.JSON(httpStatus, checks)
+	})
+
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "pong"})
 	})
-	// 用户注册
 
-	// 访问短链接
-	r.GET("/:shortCode", controller.RedirectHandler)
+	// 访问短链接（公开接口，IP 维度高阈值限流）
+	r.GET("/:shortCode", middlewares.RedirectRateLimit(), controller.RedirectHandler)
 
-	// 需要登录
-	v1 := r.Group("/api/v1")
-	v1.Use(middlewares.JWTAuthMiddleware())
+	// ─── 认证组（/api/v1/auth） ───
+	auth := r.Group("/api/v1/auth")
+	auth.Use(middlewares.APIRateLimit()) // ① IP 层
 	{
-		//创建短链接
-		v1.POST("/shorten", controller.ShortenHandler)
-		// 获取短链接信息
-		v1.GET("/:shortCode", controller.ShortenInfoHandler)
-		// 批量创建短链接
-		v1.POST("/batch/shorten", controller.BatchShortenHandler)
-		// 修改目标链接信息
-		v1.PUT("/:shortCode", controller.UpdateLongURLHandler)
-		// 删除目标链接
-		v1.DELETE("/:shortCode", controller.DeleteShortenHandler)
-		// 获取用户短链接
-		v1.GET("/user/urls", controller.GetURLsHandler)
-		// 用户短链接访问统计
-		v1.GET("/:shortCode/stats", controller.GetShortStatsHandler)
+		auth.POST("/register", controller.UserRegisterHandler)
+		auth.POST("/login", middlewares.LoginRateLimit(), controller.UserLoginHandler) // 登录单独严格限流
+		auth.POST("/refresh", controller.UserRefreshHandler)
+	}
 
-		// 注销账户
+	// ─── API v1 组（需要登录） ───
+	//  双层限流：IP 层（防 DDoS）→ JWT → UserID 层（防用户滥用）
+	v1 := r.Group("/api/v1")
+	v1.Use(middlewares.APIRateLimit())      // ① IP 层：防 DDoS（300/min）
+	v1.Use(middlewares.JWTAuthMiddleware()) // ② JWT 认证
+	v1.Use(middlewares.UserRateLimit())     // ③ UserID 层：按用户限流（200/min）
+	{
+		v1.POST("/shorten", controller.ShortenHandler)
+		v1.GET("/:shortCode", controller.ShortenInfoHandler)
+		v1.POST("/batch/shorten", controller.BatchShortenHandler)
+		v1.PUT("/:shortCode", controller.UpdateLongURLHandler)
+		v1.DELETE("/:shortCode", controller.DeleteShortenHandler)
+		v1.GET("/user/urls", controller.GetURLsHandler)
+		v1.GET("/:shortCode/stats", controller.GetShortStatsHandler)
 		v1.DELETE("/user/account", controller.DeleteUserHandler)
 	}
 
-	// 管理员接口
-	v1Admin := r.Group("/api/v1")
-	v1Admin.Use(middlewares.JWTAuthMiddleware(), middlewares.AdminAuthMiddleware())
+	// ─── 管理员接口 ───
+	admin := r.Group("/api/v1")
+	admin.Use(middlewares.APIRateLimit())                                     // ① IP 层
+	admin.Use(middlewares.JWTAuthMiddleware())                                // ② JWT
+	admin.Use(middlewares.AdminAuthMiddleware(), middlewares.UserRateLimit()) // ③ 管理员权限 + UserID 层
 	{
-		v1Admin.GET("/urls", controller.GetAdminURLsHandler)
-		v1Admin.GET("/stats/overview", controller.GetStatsOverviewHandler)
-	}
-
-	v2 := r.Group("/api/v1")
-	{
-		v2.POST("/auth/register", controller.UserRegisterHandler)
-		v2.POST("/auth/login", controller.UserLoginHandler)
-		v2.POST("/auth/refresh", controller.UserRefreshHandler)
+		admin.GET("/urls", controller.GetAdminURLsHandler)
+		admin.GET("/stats/overview", controller.GetStatsOverviewHandler)
 	}
 
 	return r

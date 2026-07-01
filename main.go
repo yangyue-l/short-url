@@ -10,6 +10,8 @@ import (
 	"short-url/dao/mysql"
 	"short-url/dao/redis"
 	"short-url/logger"
+	"short-url/logic"
+	"short-url/middlewares"
 	"short-url/mq"
 	"short-url/pkg/snowflake"
 	"short-url/routes"
@@ -57,6 +59,14 @@ func main() {
 	}
 	defer mq.Close()
 
+	// 6.5 初始化布隆过滤器并加载已有短码（防缓存穿透）
+	logic.InitBloomFilter(10_000_000, 0.001) // 1000万条，0.1%误判率
+	if codes, err := mysql.GetAllShortCodes(); err != nil {
+		zap.L().Warn("load short codes for bloom filter failed", zap.Error(err))
+	} else {
+		logic.LoadBloomFromDB(codes)
+	}
+
 	// 7. 启动 MQ 消费者（批量聚合 + 写 Redis）
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -65,13 +75,19 @@ func main() {
 	// 8. 启动定时回刷任务（Redis → MySQL）
 	cron.StartFlushJob(ctx)
 
+	// 8.5 启动日志清理任务（每天凌晨 3 点清理 90 天前日志）
+	cron.StartCleanupJob(ctx)
+
 	// 9. 注册路由
 	r := routes.Setup(cfg.Server.Mode)
 
-	// 10. 启动服务（支持优雅关闭）
+	// 10. 启动服务（支持优雅关闭 + 超时防 Slowloris）
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: r,
+		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,  // 读取请求的超时（含 body）
+		WriteTimeout: 30 * time.Second,  // 写响应的超时
+		IdleTimeout:  120 * time.Second, // keep-alive 空闲超时
 	}
 
 	go func() {
@@ -94,8 +110,9 @@ func main() {
 		zap.L().Fatal("server shutdown failed", zap.Error(err))
 	}
 
-	// 停止消费者 + 回刷
+	// 停止消费者 + 限流器清理协程 + 回刷
 	cancel()
+	middlewares.StopLimiters()
 	mq.StopConsumers()
 
 	zap.L().Info("server exited")

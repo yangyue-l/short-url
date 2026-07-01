@@ -4,7 +4,7 @@ import (
 	"short-url/models"
 	"time"
 
-	"gorm.io/gorm/clause"
+	"gorm.io/gorm"
 )
 
 func CreateClickLog(log *models.ClickLog) error {
@@ -29,16 +29,30 @@ func BatchCreateClickLogs(items []*models.ClickItem) error {
 	return db.CreateInBatches(logs, 200).Error
 }
 
-// IncrementClickCntBatch 批量累加 url 表的 click_cnt
+// IncrementClickCntBatch 批量累加 url 表的 click_cnt（使用 CASE WHEN 单条 UPDATE）
 func IncrementClickCntBatch(pvMap map[string]int64) error {
 	if len(pvMap) == 0 {
 		return nil
 	}
+
+	// 构建 CASE WHEN 批量更新：一条 SQL 完成所有更新
+	// UPDATE urls SET click_cnt = CASE short_code
+	//   WHEN 'abc' THEN click_cnt + 10
+	//   WHEN 'xyz' THEN click_cnt + 5
+	// END WHERE short_code IN ('abc', 'xyz')
+	codes := make([]string, 0, len(pvMap))
+	caseSQL := "CASE short_code "
+	args := make([]interface{}, 0, len(pvMap)*2)
 	for code, delta := range pvMap {
-		db.Model(&models.URL{}).Where("short_code = ?", code).
-			UpdateColumn("click_cnt", clause.Expr{SQL: "click_cnt + ?", Vars: []interface{}{delta}})
+		codes = append(codes, code)
+		caseSQL += "WHEN ? THEN click_cnt + ? "
+		args = append(args, code, delta)
 	}
-	return nil
+	caseSQL += "END"
+
+	return db.Model(&models.URL{}).
+		Where("short_code IN ?", codes).
+		UpdateColumn("click_cnt", gorm.Expr(caseSQL, args...)).Error
 }
 
 // GetClickStats 查询详细统计（总数 / 独立IP / 今日点击数 / 按天 / 来源 Top5）
@@ -143,4 +157,36 @@ func GetBrowserData(shortCode string) (map[string]int64, error) {
 		result[ua] = count
 	}
 	return result, nil
+}
+
+// CleanOldClickLogs 清理超过 retentionDays 天的点击日志
+func CleanOldClickLogs(retentionDays int) (int64, error) {
+	cutoff := time.Now().AddDate(0, 0, -retentionDays)
+	result := db.Where("created_at < ?", cutoff).Delete(&models.ClickLog{})
+	return result.RowsAffected, result.Error
+}
+
+// GetClickStatsDaily 从预聚合表查询按天统计（近 7 天）
+func GetClickStatsDaily(shortCode string) ([]models.ClicksByDay, error) {
+	sevenDaysAgo := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -6)
+	var rows []models.ClicksByDay
+	err := db.Model(&models.ClickStatsDaily{}).
+		Select("stat_date as date, SUM(pv) as count").
+		Where("short_code = ? AND stat_date >= ?", shortCode, sevenDaysAgo.Format("2006-01-02")).
+		Group("stat_date").
+		Order("stat_date ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+// UpsertClickStatsDaily 按天更新预聚合统计表（ON DUPLICATE KEY UPDATE 累加模式）
+func UpsertClickStatsDaily(date string, shortCode string, pvDelta, uvDelta int64) error {
+	// 使用原生 SQL 确保 UPSERT 时累加而非覆盖
+	sql := `INSERT INTO click_stats_daily (short_code, stat_date, pv, uv, created_at, updated_at)
+		VALUES (?, ?, ?, ?, NOW(), NOW())
+		ON DUPLICATE KEY UPDATE
+			pv = pv + VALUES(pv),
+			uv = uv + VALUES(uv),
+			updated_at = NOW()`
+	return db.Exec(sql, shortCode, date, pvDelta, uvDelta).Error
 }

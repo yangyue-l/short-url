@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"short-url/models"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -100,6 +101,13 @@ func DeleteURLsByUserID(userID int64) error {
 	return db.Where("user_id = ?", userID).Delete(&models.URL{}).Error
 }
 
+// GetAllShortCodes 获取全部短码（布隆过滤器初始化用）
+func GetAllShortCodes() ([]string, error) {
+	var codes []string
+	err := db.Model(&models.URL{}).Pluck("short_code", &codes).Error
+	return codes, err
+}
+
 // GetShortCodesByUserID 获取用户所有短码列表（注销时清缓存用）
 func GetShortCodesByUserID(userID int64) ([]string, error) {
 	var codes []string
@@ -117,13 +125,15 @@ func ScopePaginate(page, pageSize int) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
-// ScopeKeywordSearch 关键词模糊搜索长链接
+// ScopeKeywordSearch 关键词模糊搜索长链接（安全转义 LIKE 通配符）
 func ScopeKeywordSearch(keyword string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		if keyword == "" {
 			return db
 		}
-		return db.Where("urls.long_url LIKE ?", "%"+keyword+"%")
+		// 转义 LIKE 通配符，防止用户输入 % 或 _ 导致意外匹配
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_", "\\", "\\\\").Replace(keyword)
+		return db.Where("urls.long_url LIKE ?", "%"+escaped+"%")
 	}
 }
 

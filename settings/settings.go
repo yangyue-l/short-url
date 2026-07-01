@@ -51,21 +51,27 @@ type ServerConfig struct {
 }
 
 type MySQLConfig struct {
-	Host         string `yaml:"host"`
-	Port         int    `yaml:"port"`
-	User         string `yaml:"user"`
-	Password     string `yaml:"password"`
-	DB           string `yaml:"db"`
-	MaxOpenConns int    `yaml:"max_open_conns"`
-	MaxIdleConns int    `yaml:"max_idle_conns"`
+	Host               string `yaml:"host"`
+	Port               int    `yaml:"port"`
+	User               string `yaml:"user"`
+	Password           string `yaml:"password"`
+	DB                 string `yaml:"db"`
+	MaxOpenConns       int    `yaml:"max_open_conns"`
+	MaxIdleConns       int    `yaml:"max_idle_conns"`
+	ConnMaxLifetimeMin int    `yaml:"conn_max_lifetime_minutes"`
+	ConnMaxIdleTimeMin int    `yaml:"conn_max_idle_time_minutes"`
 }
 
 type RedisConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
-	PoolSize int    `yaml:"pool_size"`
+	Host               string `yaml:"host"`
+	Port               int    `yaml:"port"`
+	Password           string `yaml:"password"`
+	DB                 int    `yaml:"db"`
+	PoolSize           int    `yaml:"pool_size"`
+	MinIdleConns       int    `yaml:"min_idle_conns"`
+	PoolTimeoutSec     int    `yaml:"pool_timeout_seconds"`
+	ReadTimeoutMillis  int    `yaml:"read_timeout_millis"`
+	WriteTimeoutMillis int    `yaml:"write_timeout_millis"`
 }
 
 // ─── RabbitMQ 配置 ───

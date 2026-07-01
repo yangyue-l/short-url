@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"short-url/dao/redis"
+	"short-url/models"
 	"short-url/settings"
 
 	"go.uber.org/zap"
@@ -30,24 +32,45 @@ func Init(cfg *settings.RabbitMQConfig) error {
 	return nil
 }
 
-// PublishClick 投递点击事件到队列
+// PublishClick 投递点击事件到队列，MQ 不可用时降级直接写 Redis
 func PublishClick(event *ClickEvent) {
-	if defaultPool == nil {
-		zap.L().Error("MQ pool not initialized")
-		return
-	}
-
 	body, err := json.Marshal(event)
 	if err != nil {
 		zap.L().Error("marshal click event failed", zap.Error(err))
 		return
 	}
 
+	if defaultPool == nil {
+		zap.L().Warn("MQ pool not initialized, fallback to direct Redis")
+		fallbackToRedis(event)
+		return
+	}
+
 	if err := defaultPool.Publish(body); err != nil {
-		zap.L().Error("publish click event failed",
+		zap.L().Warn("publish click event failed, fallback to direct Redis",
 			zap.String("shortCode", event.ShortCode),
 			zap.Error(err))
+		fallbackToRedis(event)
 	}
+}
+
+// fallbackToRedis MQ 不可用时的降级方案：直接写 Redis 计数
+func fallbackToRedis(event *ClickEvent) {
+	client := redis.GetClient()
+	if client == nil {
+		return
+	}
+	item := &models.ClickItem{
+		ShortCode: event.ShortCode,
+		IP:        event.IP,
+		Referer:   event.Referer,
+		UserAgent: event.UserAgent,
+		Timestamp: event.Timestamp,
+	}
+	redis.BatchIncrPV(client, map[string]int64{event.ShortCode: 1})
+	redis.BatchAddUV(client, []*models.ClickItem{item})
+	redis.MarkActive(client, map[string]int64{event.ShortCode: 1})
+	redis.IncrTodayClick(client, 1)
 }
 
 // Close 关闭全局连接池

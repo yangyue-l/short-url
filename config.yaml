@@ -10,13 +10,19 @@ mysql:
   db: short_url
   max_open_conns: 100
   max_idle_conns: 20
+  conn_max_lifetime_minutes: 60
+  conn_max_idle_time_minutes: 10
 
 redis:
   host: 127.0.0.1
   port: 6379
   password: 123456
   db: 0
-  pool_size: 10
+  pool_size: 200
+  min_idle_conns: 20
+  pool_timeout_seconds: 3
+  read_timeout_millis: 200
+  write_timeout_millis: 200
 
 rabbitmq:
   # 连接

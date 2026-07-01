@@ -34,20 +34,6 @@ func createURL(url *models.URL) error {
 	return nil
 }
 
-func cacheURL(shortCode, longURL string, ttl time.Duration) {
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				zap.L().Error("cacheURL panic", zap.Any("recover", r))
-			}
-		}()
-		if err := redis.CacheShortURL(shortCode, longURL, ttl); err != nil {
-			zap.L().Warn("cache to redis failed",
-				zap.String("shortCode", shortCode), zap.Error(err))
-		}
-	}()
-}
-
 func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*models.ParamShortenResponse, error) {
 	url := &models.URL{
 		LongURL:   longURL,
@@ -72,6 +58,7 @@ func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*
 		ttl = time.Duration(expireIn) * time.Second
 	}
 	cacheURL(url.ShortCode, longURL, ttl)
+	AddToBloom(url.ShortCode) // 新增短码加入布隆过滤器
 
 	baseURL := settings.Cfg.BaseURL()
 	resp := &models.ParamShortenResponse{
@@ -88,33 +75,46 @@ func CreateShortURL(userID int64, longURL, customCode string, expireIn int64) (*
 }
 
 func GetLongURL(shortCode string) (string, error) {
-	longURL, err := redis.GetCachedURL(shortCode)
-	if err == nil {
-		return longURL, nil
+	// 第一层：布隆过滤器快速拦截不存在的短码
+	if BloomFilter != nil && !BloomFilter.MayExist(shortCode) {
+		return "", errors.New("short code not found")
 	}
 
-	url, err := mysql.GetURLByShortCode(shortCode)
+	// 第二层：singleflight 合并并发请求，防止缓存击穿
+	val, err, _ := sfGroup.Do(shortCode, func() (interface{}, error) {
+		longURL, err := redis.GetCachedURL(shortCode)
+		if err == nil {
+			return longURL, nil
+		}
+
+		url, err := mysql.GetURLByShortCode(shortCode)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.New("short code not found")
+			}
+			zap.L().Error("get url by short code failed", zap.Error(err))
+			return nil, errors.New("query failed")
+		}
+
+		if url.ExpireAt != nil && url.ExpireAt.Before(time.Now()) {
+			return nil, errors.New("short code has expired")
+		}
+
+		ttl := redis.URLCacheTTL
+		if url.ExpireAt != nil {
+			if remaining := time.Until(*url.ExpireAt); remaining < ttl {
+				ttl = remaining
+			}
+		}
+		cacheURL(shortCode, url.LongURL, ttl)
+
+		return url.LongURL, nil
+	})
+
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", errors.New("short code not found")
-		}
-		zap.L().Error("get url by short code failed", zap.Error(err))
-		return "", errors.New("query failed")
+		return "", err
 	}
-
-	if url.ExpireAt != nil && url.ExpireAt.Before(time.Now()) {
-		return "", errors.New("short code has expired")
-	}
-
-	ttl := redis.URLCacheTTL
-	if url.ExpireAt != nil {
-		if remaining := time.Until(*url.ExpireAt); remaining < ttl {
-			ttl = remaining
-		}
-	}
-	cacheURL(shortCode, url.LongURL, ttl)
-
-	return url.LongURL, nil
+	return val.(string), nil
 }
 
 func GetShortenInfo(shortCode string) (*models.ParamURLInfoResponse, error) {
@@ -205,6 +205,7 @@ func CreateBatchShortURL(userID int64, p *models.ParamBatchURLRequest) (*models.
 			ttl = time.Duration(item.ExpireIn) * time.Second
 		}
 		cacheURL(url.ShortCode, item.LongURL, ttl)
+		AddToBloom(url.ShortCode)
 
 		itemResp.ShortURL = fmt.Sprintf("%s/%s", baseURL, url.ShortCode)
 		itemResp.ShortCode = url.ShortCode
@@ -432,6 +433,18 @@ func GetShortStats(userID int64, shortCode string) (*models.ParamShortStatsRespo
 	uniqueIPs := stats.UniqueIPs + redisUV
 	todayClicks := stats.TodayClicks + redisPV
 
+	// 按天统计：优先使用预聚合表（更快），fallback 到 click_logs 原始扫描
+	clicksByDay := stats.ClicksByDay
+	if dailyRows, err := mysql.GetClickStatsDaily(shortCode); err == nil && len(dailyRows) > 0 {
+		todayStr := time.Now().Format("2006-01-02")
+		for i := range dailyRows {
+			if dailyRows[i].Date == todayStr {
+				dailyRows[i].Count += redisPV // 加上 Redis 中尚未预聚合的实时 PV
+			}
+		}
+		clicksByDay = dailyRows
+	}
+
 	// 浏览器解析——从 DAO 拿原始数据，在 logic 层做归类
 	rawBrowsers, _ := mysql.GetBrowserData(shortCode)
 	topBrowsers := mergeBrowsers(rawBrowsers, 5)
@@ -441,7 +454,7 @@ func GetShortStats(userID int64, shortCode string) (*models.ParamShortStatsRespo
 		TotalClicks: totalClicks,
 		UniqueIPs:   uniqueIPs,
 		TodayClicks: todayClicks,
-		ClicksByDay: stats.ClicksByDay,
+		ClicksByDay: clicksByDay,
 		TopReferers: stats.TopReferers,
 		TopBrowsers: topBrowsers,
 	}, nil

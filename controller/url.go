@@ -53,7 +53,7 @@ func RedirectHandler(c *gin.Context) {
 	// 异步记录点击（通过 RabbitMQ 投递，不阻塞跳转）
 	logic.RecordClick(shortCode, c.ClientIP(), c.Request.Referer(), c.Request.UserAgent())
 
-	c.Redirect(http.StatusMovedPermanently, longURL)
+	c.Redirect(http.StatusFound, longURL)
 }
 
 // ShortenInfoHandler 查询短链接信息
